@@ -1,6 +1,6 @@
 {
   "name": "deployshield",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "description": "Production safety guardrails that block write/mutating operations on cloud, database, IaC, and deployment CLIs.",
   "author": {
     "name": "Matan Ryngler",
