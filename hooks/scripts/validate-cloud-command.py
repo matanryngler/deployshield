@@ -309,6 +309,11 @@ def check_az(args: list[str]) -> bool:
 
 
 def check_kubectl(args: list[str]) -> bool:
+    # Allow --dry-run=client or --dry-run=server (but NOT --dry-run=none)
+    for tok in args:
+        if tok in ('--dry-run=client', '--dry-run=server', '--dry-run'):
+            return True
+
     positional = skip_flags(
         args,
         flags_with_value={'--context', '--cluster', '--namespace', '-n',
@@ -338,6 +343,10 @@ def check_kubectl(args: list[str]) -> bool:
 
 
 def check_helm(args: list[str]) -> bool:
+    # Allow --dry-run for any helm command
+    if '--dry-run' in args:
+        return True
+
     positional = skip_flags(
         args,
         flags_with_value={'--kube-context', '--kubeconfig', '-n', '--namespace'},
@@ -415,10 +424,427 @@ def check_pulumi(args: list[str]) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────────
+# Database CLIs
+# ──────────────────────────────────────────────────────────────────
+
+# SQL keywords that are safe (read-only)
+_SAFE_SQL_PREFIXES = (
+    'select ', 'show ', 'describe ', 'explain ', 'desc ',
+    '\\d', '\\l', '\\dt', '\\dn', '\\di', '\\ds', '\\dv', '\\du',
+    '\\sf', '\\sv', '\\pset', '\\timing', '\\conninfo', '\\encoding',
+)
+
+_UNSAFE_SQL_PREFIXES = (
+    'drop ', 'delete ', 'truncate ', 'alter ', 'update ', 'insert ',
+    'create ', 'grant ', 'revoke ', 'replace ', 'merge ',
+)
+
+
+def _check_sql_safe(sql: str) -> bool:
+    """Check if a SQL statement is read-only."""
+    s = sql.strip().lower()
+    if not s:
+        return True
+    # Psql backslash commands that are safe
+    if s.startswith('\\'):
+        # Block \! (shell escape), \copy, \i (file exec), \o (output to file)
+        unsafe_backslash = ('\\!', '\\copy', '\\i ', '\\ir ', '\\o ')
+        for prefix in unsafe_backslash:
+            if s.startswith(prefix):
+                return False
+        return True
+    for prefix in _SAFE_SQL_PREFIXES:
+        if s.startswith(prefix):
+            return True
+    for prefix in _UNSAFE_SQL_PREFIXES:
+        if s.startswith(prefix):
+            return False
+    # Unknown SQL — default-deny for safety
+    return False
+
+
+def check_psql(args: list[str]) -> bool:
+    # Allow --help, --version
+    if not args or '--help' in args or '--version' in args:
+        return True
+
+    # -l (list databases) is safe
+    if '-l' in args or '--list' in args:
+        return True
+
+    # Check -c (command) flag for SQL content
+    for i, tok in enumerate(args):
+        if tok == '-c' and i + 1 < len(args):
+            if not _check_sql_safe(args[i + 1]):
+                return False
+        elif tok.startswith('-c') and len(tok) > 2:
+            if not _check_sql_safe(tok[2:]):
+                return False
+
+    # -f (file execution) — we can't verify file contents, block it
+    if '-f' in args or '--file' in args:
+        return False
+
+    # If no -c and no -f, it's either a connection-only command or interactive.
+    # Allow it — Claude can't interact with an interactive session.
+    # But check for positional SQL after dbname (shouldn't happen with psql).
+    return True
+
+
+def check_mysql(args: list[str]) -> bool:
+    if not args or '--help' in args or '--version' in args:
+        return True
+
+    # Check -e (execute) flag for SQL content
+    for i, tok in enumerate(args):
+        if tok == '-e' and i + 1 < len(args):
+            if not _check_sql_safe(args[i + 1]):
+                return False
+        elif tok.startswith('-e') and len(tok) > 2:
+            if not _check_sql_safe(tok[2:]):
+                return False
+        elif tok == '--execute' and i + 1 < len(args):
+            if not _check_sql_safe(args[i + 1]):
+                return False
+
+    # Source/execute file — block
+    if '--init-command' in args:
+        return False
+    for tok in args:
+        if tok.startswith('--init-command='):
+            return False
+
+    return True
+
+
+def check_mongosh(args: list[str]) -> bool:
+    if not args or '--help' in args or '--version' in args:
+        return True
+
+    # Check --eval flag for JavaScript content
+    for i, tok in enumerate(args):
+        if tok == '--eval' and i + 1 < len(args):
+            js = args[i + 1].lower()
+            # Safe patterns
+            if any(p in js for p in ('.find(', '.findone(', '.count(', 'show ',
+                                      '.getstatus(', '.stats(', '.explain(',
+                                      '.aggregate(', 'db.getnames', '.listdatabases',
+                                      'printjson', 'db.version')):
+                return True
+            # Unsafe patterns
+            if any(p in js for p in ('.drop(', '.delete', '.remove(', '.update(',
+                                      '.insert(', '.replaceone(', '.createsindex',
+                                      '.dropcollection', '.dropdatabase',
+                                      'db.createcollection', 'db.createuser')):
+                return False
+            # Unknown JS — default-deny
+            return False
+
+    # --file / script file — block
+    if '--file' in args or '-f' in args:
+        return False
+
+    return True
+
+
+def check_redis_cli(args: list[str]) -> bool:
+    if not args or '--help' in args or '--version' in args:
+        return True
+
+    # Skip connection flags to get to the command
+    positional = skip_flags(
+        args,
+        flags_with_value={'-h', '--host', '-p', '--port', '-a', '--pass',
+                          '-n', '--db', '-u', '--uri', '--user'},
+        flags_no_value={'--tls', '--insecure', '--no-auth-warning', '-c', '--cluster'},
+    )
+
+    if not positional:
+        return True
+
+    cmd = positional[0].upper()
+    safe_commands = {
+        'GET', 'MGET', 'KEYS', 'SCAN', 'EXISTS', 'TYPE', 'TTL', 'PTTL',
+        'STRLEN', 'LLEN', 'LRANGE', 'LINDEX', 'SCARD', 'SMEMBERS',
+        'SISMEMBER', 'HGET', 'HGETALL', 'HKEYS', 'HVALS', 'HLEN',
+        'ZCARD', 'ZRANGE', 'ZRANGEBYSCORE', 'ZSCORE', 'ZRANK',
+        'INFO', 'PING', 'ECHO', 'DBSIZE', 'LASTSAVE', 'TIME',
+        'CONFIG', 'SLOWLOG', 'CLIENT', 'CLUSTER', 'MEMORY',
+        'OBJECT', 'DEBUG', 'XLEN', 'XRANGE', 'XINFO',
+    }
+
+    if cmd in safe_commands:
+        # Extra check: CONFIG SET is not safe, CONFIG GET is
+        if cmd == 'CONFIG' and len(positional) > 1:
+            subcmd = positional[1].upper()
+            if subcmd not in ('GET', 'RESETSTAT'):
+                return False
+        return True
+
+    return False
+
+
+# ──────────────────────────────────────────────────────────────────
+# IaC deployment tools
+# ──────────────────────────────────────────────────────────────────
+
+def check_cdk(args: list[str]) -> bool:
+    if not args or '--help' in args or '--version' in args:
+        return True
+
+    positional = skip_flags(
+        args,
+        flags_with_value={'--app', '-a', '--context', '-c', '--profile', '--output', '-o'},
+        flags_no_value={'--verbose', '-v', '--debug', '--json', '--long'},
+    )
+
+    if not positional:
+        return True
+
+    subcmd = positional[0]
+    safe = {'diff', 'synth', 'synthesize', 'list', 'ls', 'doctor', 'context',
+            'metadata', 'version', 'docs'}
+    return subcmd in safe
+
+
+def check_sam(args: list[str]) -> bool:
+    if not args or '--help' in args or '--version' in args:
+        return True
+
+    positional = skip_flags(
+        args,
+        flags_with_value={'--template', '-t', '--config-file', '--config-env',
+                          '--profile', '--region'},
+        flags_no_value={'--debug', '--verbose'},
+    )
+
+    if not positional:
+        return True
+
+    subcmd = positional[0]
+    safe = {'validate', 'build', 'local', 'logs', 'list', 'traces', 'version'}
+    return subcmd in safe
+
+
+def check_serverless(args: list[str]) -> bool:
+    if not args or '--help' in args or '--version' in args:
+        return True
+
+    positional = skip_flags(
+        args,
+        flags_with_value={'--stage', '-s', '--region', '-r', '--config', '-c',
+                          '--aws-profile'},
+        flags_no_value={'--verbose', '-v', '--debug'},
+    )
+
+    if not positional:
+        return True
+
+    subcmd = positional[0]
+    safe = {'info', 'print', 'package', 'version', 'doctor', 'help'}
+    if subcmd in safe:
+        return True
+
+    # invoke local is safe, invoke (remote) is not
+    if subcmd == 'invoke' and 'local' in positional:
+        return True
+
+    return False
+
+
+def check_ansible_playbook(args: list[str]) -> bool:
+    if not args or '--help' in args or '--version' in args:
+        return True
+
+    # Only safe with --check (dry run) or --diff (show changes) or --list-hosts/--list-tasks
+    if '--check' in args or '-C' in args:
+        return True
+    if '--list-hosts' in args or '--list-tasks' in args or '--list-tags' in args:
+        return True
+    if '--syntax-check' in args:
+        return True
+
+    return False
+
+
+# ──────────────────────────────────────────────────────────────────
+# Secrets / Vault
+# ──────────────────────────────────────────────────────────────────
+
+def check_vault(args: list[str]) -> bool:
+    if not args or '--help' in args or '-h' in args or '--version' in args:
+        return True
+
+    positional = skip_flags(
+        args,
+        flags_with_value={'--address', '-address', '--namespace', '-namespace',
+                          '--format', '-format'},
+        flags_no_value={'--no-color', '-no-color'},
+    )
+
+    if not positional:
+        return True
+
+    subcmd = positional[0]
+    safe = {'read', 'list', 'status', 'version', 'login', 'print', 'path-help',
+            'audit', 'debug'}
+
+    if subcmd in safe:
+        return True
+
+    if subcmd == 'token' and len(positional) > 1:
+        return positional[1] in ('lookup', 'capabilities')
+
+    if subcmd == 'kv' and len(positional) > 1:
+        return positional[1] in ('get', 'list', 'metadata')
+
+    if subcmd == 'secrets' and len(positional) > 1:
+        return positional[1] == 'list'
+
+    if subcmd == 'policy' and len(positional) > 1:
+        return positional[1] in ('read', 'list', 'fmt')
+
+    return False
+
+
+# ──────────────────────────────────────────────────────────────────
+# GitHub CLI
+# ──────────────────────────────────────────────────────────────────
+
+def check_gh(args: list[str]) -> bool:
+    if not args or '--help' in args or '--version' in args:
+        return True
+
+    subcmd = args[0]
+    subaction = args[1] if len(args) > 1 else ''
+
+    # Always safe top-level commands
+    if subcmd in ('auth', 'status', 'version', 'help', 'config', 'alias',
+                  'completion', 'browse', 'search', 'extension', 'label'):
+        return True
+
+    # Per-resource safe actions
+    read_actions = {'view', 'list', 'status', 'diff', 'checks', 'comment'}
+    if subcmd in ('pr', 'issue', 'run', 'release', 'project'):
+        if subaction in read_actions:
+            return True
+
+    # gh api — allow GET, block other methods
+    if subcmd == 'api':
+        # Check for explicit method flag
+        for i, tok in enumerate(args):
+            if tok in ('-X', '--method') and i + 1 < len(args):
+                return args[i + 1].upper() == 'GET'
+        # Default method for gh api is GET
+        return True
+
+    # gh repo — only view/list/clone/fork(read) are safe
+    if subcmd == 'repo':
+        return subaction in ('view', 'list', 'clone')
+
+    # gh gist — only view/list
+    if subcmd == 'gist':
+        return subaction in ('view', 'list')
+
+    return False
+
+
+# ──────────────────────────────────────────────────────────────────
+# Container runtimes
+# ──────────────────────────────────────────────────────────────────
+
+def check_docker(args: list[str]) -> bool:
+    if not args or '--help' in args or '--version' in args:
+        return True
+
+    positional = skip_flags(
+        args,
+        flags_with_value={'-H', '--host', '--context', '-c', '--log-level', '-l'},
+        flags_no_value={'--debug', '-D'},
+    )
+
+    if not positional:
+        return True
+
+    subcmd = positional[0]
+    subaction = positional[1] if len(positional) > 1 else ''
+
+    # Safe top-level commands
+    safe_single = {'ps', 'images', 'info', 'version', 'inspect', 'logs',
+                   'stats', 'top', 'port', 'events', 'diff', 'history',
+                   'search', 'login', 'logout'}
+    if subcmd in safe_single:
+        return True
+
+    # Management commands with safe subactions
+    if subcmd in ('container', 'image', 'volume', 'network', 'node',
+                  'service', 'stack', 'secret', 'config', 'plugin',
+                  'system', 'context', 'manifest', 'trust', 'buildx',
+                  'compose'):
+        read_subs = {'ls', 'list', 'inspect', 'logs', 'top', 'stats',
+                     'diff', 'history', 'events', 'info', 'version',
+                     'show', 'ps', 'config'}
+        if subaction in read_subs:
+            return True
+        # docker system df is safe
+        if subcmd == 'system' and subaction == 'df':
+            return True
+        # docker compose ps/logs/config/version
+        if subcmd == 'compose' and subaction in ('ps', 'logs', 'config',
+                                                  'version', 'images', 'top'):
+            return True
+        return False
+
+    # docker build is explicitly NOT safe (creates images, can push)
+    return False
+
+
+# ──────────────────────────────────────────────────────────────────
+# Package publishing
+# ──────────────────────────────────────────────────────────────────
+
+def check_npm_publish(binary: str, args: list[str]) -> bool | None:
+    """Check npm/yarn/pnpm for publish commands. Returns None if not relevant."""
+    if binary not in ('npm', 'yarn', 'pnpm'):
+        return None
+
+    if not args:
+        return True
+
+    subcmd = args[0]
+    # Block publish/unpublish, allow everything else
+    if subcmd in ('publish', 'unpublish'):
+        return False
+    return True
+
+
+def check_twine(args: list[str]) -> bool:
+    if not args or '--help' in args:
+        return True
+    subcmd = args[0]
+    return subcmd != 'upload'
+
+
+def check_gem(args: list[str]) -> bool:
+    if not args or '--help' in args or '--version' in args:
+        return True
+    subcmd = args[0]
+    return subcmd not in ('push', 'yank')
+
+
+def check_cargo(args: list[str]) -> bool:
+    if not args or '--help' in args or '--version' in args:
+        return True
+    subcmd = args[0]
+    return subcmd != 'publish'
+
+
+# ──────────────────────────────────────────────────────────────────
 # Provider dispatch
 # ──────────────────────────────────────────────────────────────────
 
 PROVIDERS = {
+    # Cloud CLIs
     'aws':       ('AWS',        check_aws),
     'gcloud':    ('GCP',        check_gcloud),
     'az':        ('Azure',      check_az),
@@ -426,6 +852,29 @@ PROVIDERS = {
     'helm':      ('Helm',       check_helm),
     'terraform': ('Terraform',  check_terraform),
     'pulumi':    ('Pulumi',     check_pulumi),
+    # Database CLIs
+    'psql':      ('PostgreSQL',  check_psql),
+    'mysql':     ('MySQL',       check_mysql),
+    'mongosh':   ('MongoDB',     check_mongosh),
+    'mongo':     ('MongoDB',     check_mongosh),
+    'redis-cli': ('Redis',       check_redis_cli),
+    # IaC deployment tools
+    'cdk':       ('CDK',         check_cdk),
+    'sam':       ('SAM',         check_sam),
+    'serverless': ('Serverless', check_serverless),
+    'sls':       ('Serverless',  check_serverless),
+    'ansible-playbook': ('Ansible', check_ansible_playbook),
+    # Secrets
+    'vault':     ('Vault',       check_vault),
+    # GitHub CLI
+    'gh':        ('GitHub CLI',  check_gh),
+    # Container runtimes
+    'docker':    ('Docker',      check_docker),
+    'podman':    ('Podman',      check_docker),
+    # Package publishing
+    'twine':     ('PyPI',        check_twine),
+    'gem':       ('RubyGems',    check_gem),
+    'cargo':     ('Cargo',       check_cargo),
 }
 
 
@@ -448,6 +897,13 @@ def deny(provider: str, cmd: str) -> None:
 def check_segment(segment: str) -> None:
     binary, args = normalize_segment(segment)
     if not binary:
+        return
+
+    # Special case: npm/yarn/pnpm — only block publish subcommand
+    pub_result = check_npm_publish(binary, args)
+    if pub_result is not None:
+        if not pub_result:
+            deny('npm', segment)
         return
 
     if binary in PROVIDERS:
