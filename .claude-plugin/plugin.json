@@ -1,6 +1,14 @@
 {
   "name": "deployshield",
-  "version": "1.0.0",
-  "description": "Guardrail plugin that prevents Claude from executing write/mutating commands against production cloud environments (AWS, GCP, Azure, Kubernetes, Helm, Terraform, Pulumi).",
-  "keywords": ["security", "cloud", "guardrail", "aws", "gcp", "azure", "kubernetes", "terraform", "pulumi"]
+  "version": "1.1.0",
+  "description": "Production safety guardrails that block write/mutating operations on cloud, database, IaC, and deployment CLIs.",
+  "author": {
+    "name": "Matan Ryngler",
+    "url": "https://github.com/matanryngler"
+  },
+  "homepage": "https://github.com/matanryngler/deployshield",
+  "repository": "https://github.com/matanryngler/deployshield",
+  "license": "MIT",
+  "keywords": ["security", "cloud", "guardrail", "safety", "aws", "gcp", "azure",
+               "kubernetes", "terraform", "pulumi", "docker", "database", "vault"]
 }
