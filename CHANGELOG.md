@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.0.0 (2026-02-11)
+
+
+### Features
+
+* add release-please for automated releases ([59ec3fc](https://github.com/matanryngler/deployshield/commit/59ec3fc9b64b24115829f8092a6296a85a7dcace))
+* productionize with tests, CI, repo hygiene, and automated releases ([495b68c](https://github.com/matanryngler/deployshield/commit/495b68ca7099eb9bc8e8aeaaefb019efeaacd876))
+
 ## [1.1.0] - 2026-02-11
 
 ### Added
