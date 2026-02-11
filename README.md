@@ -4,22 +4,12 @@ A Claude Code plugin that acts as a guardrail to prevent write/mutating commands
 
 ## How It Works
 
-```
-  Claude wants to run              DeployShield                    Bash
-  ┌──────────────┐           ┌──────────────────┐           ┌──────────────┐
-  │ terraform     │──stdin──▶│  Parse command    │──allow──▶│  Command     │
-  │ apply         │          │  Check safe-list  │           │  executes    │
-  └──────────────┘          │  Default-deny     │           └──────────────┘
-                             │  for cloud CLIs   │
-                             └────────┬─────────┘
-                                      │
-                                    deny
-                                      │
-                                      ▼
-                             ┌──────────────────┐
-                             │ "Blocked Terraform│
-                             │  write operation" │
-                             └──────────────────┘
+```mermaid
+flowchart LR
+    A["Claude runs\na Bash command"] --> B{"DeployShield\nPreToolUse Hook"}
+    B -->|"Cloud CLI +\nread-only"| C["Command executes"]
+    B -->|"Not a\ncloud CLI"| C
+    B -->|"Cloud CLI +\nwrite/mutate"| D["Blocked with\nreason message"]
 ```
 
 Every Bash command Claude attempts to run is piped through DeployShield's validation script. If it detects a recognized cloud CLI, it checks the subcommand against a curated safe-list of read-only operations. If the action isn't on the list, it's blocked. Non-cloud commands pass through untouched.
