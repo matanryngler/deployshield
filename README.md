@@ -73,15 +73,16 @@ DeployShield uses a quote-aware parser that correctly handles:
 
 ## Installation
 
-### As a plugin directory
+### Via Plugin Marketplace (recommended)
+
+Register the marketplace and install:
 
 ```bash
-claude --plugin-dir /path/to/deployshield
+claude plugin marketplace add matanryngler/deployshield
+claude plugin install deployshield@deployshield
 ```
 
-### In your project
-
-Clone or copy into your project and reference it:
+### Manual
 
 ```bash
 git clone https://github.com/matanryngler/deployshield.git
@@ -90,13 +91,12 @@ claude --plugin-dir ./deployshield
 
 ### Verify it's working
 
-Launch with debug mode to confirm hooks are registered:
+Start a new Claude Code session and try a write command — it should be blocked:
 
-```bash
-claude --plugin-dir /path/to/deployshield --debug
 ```
-
-You should see DeployShield's SessionStart hook fire, and any write commands will be blocked with a clear message.
+> kubectl delete pod my-pod
+# => Blocked: kubectl 'delete' is not in the safe-list for kubernetes
+```
 
 ## Project Structure
 
