@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/matanryngler/deployshield/compare/v1.1.0...v1.2.0) (2026-02-12)
+
+
+### Features
+
+* add marketplace support and improve installation guide ([ca14c95](https://github.com/matanryngler/deployshield/commit/ca14c95f7b1d863145737aee6b9db70c4220a59d))
+* add marketplace support and improve installation guide ([ad56287](https://github.com/matanryngler/deployshield/commit/ad56287962af16fca46545d8573d87cfd8452bf5))
+
 ## [1.1.0](https://github.com/matanryngler/deployshield/compare/v1.0.0...v1.1.0) (2026-02-11)
 
 
