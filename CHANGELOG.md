@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/matanryngler/deployshield/compare/v1.2.0...v1.2.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* use correct hooks.json format with event names as object keys ([3eb2045](https://github.com/matanryngler/deployshield/commit/3eb20451bdd46ada42c999ede0c2a268892b883c))
+* use correct hooks.json format with event names as object keys ([4eabef1](https://github.com/matanryngler/deployshield/commit/4eabef166f6a05e5701c28e9460e579464784ad5))
+
 ## [1.2.0](https://github.com/matanryngler/deployshield/compare/v1.1.0...v1.2.0) (2026-02-12)
 
 
