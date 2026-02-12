@@ -73,6 +73,34 @@ The following CLIs are monitored. **Only read-only commands are permitted:**
 | `gem` | Everything except `push`/`yank` |
 | `cargo` | Everything except `publish` |
 
+## Context-Aware Blocking (Optional)
+
+By default, DeployShield blocks ALL write operations. To block only in specific contexts (e.g. production), create a `.deployshield.json` config file:
+
+**Config file locations** (first found wins):
+1. `$DEPLOYSHIELD_CONFIG` env var
+2. `.deployshield.json` in CWD
+3. `~/.deployshield.json`
+
+**Example** — only block kubectl/helm in prod contexts, and AWS in the production profile:
+
+```json
+{
+  "kubectl": ["prod", "production", "prod-*"],
+  "helm": ["prod", "production"],
+  "aws": ["production"],
+  "terraform": ["production", "default"]
+}
+```
+
+**Rules:**
+- Provider NOT in config → blocked everywhere (default behavior)
+- Provider with patterns → blocked only when current context matches (fnmatch globs, case-sensitive)
+- Provider with `[]` → never blocked (disabled)
+- Undetectable context → treated as blocked (secure default)
+
+**Context detection:** `--context`/`--kube-context` flags and kubeconfig for kubectl/helm, `--profile`/`AWS_PROFILE` for aws, `TF_WORKSPACE`/`.terraform/environment` for terraform, `--project`/`CLOUDSDK_CORE_PROJECT` for gcloud, `--subscription`/`AZURE_SUBSCRIPTION_ID` for az, `--stack`/`-s` for pulumi.
+
 ## Guidelines
 
 - **Use read-only commands** to inspect state before proposing changes
