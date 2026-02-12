@@ -1,0 +1,20 @@
+{
+  "name": "deployshield",
+  "description": "Production safety guardrails for Claude Code",
+  "owner": {
+    "name": "Matan Ryngler",
+    "url": "https://github.com/matanryngler"
+  },
+  "plugins": [
+    {
+      "name": "deployshield",
+      "description": "Production safety guardrails that block write/mutating operations on cloud, database, IaC, and deployment CLIs.",
+      "version": "1.1.0",
+      "source": "./",
+      "author": {
+        "name": "Matan Ryngler",
+        "url": "https://github.com/matanryngler"
+      }
+    }
+  ]
+}
