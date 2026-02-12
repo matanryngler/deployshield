@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"contextForAgent\":\"DeployShield is active. Write/mutating operations are blocked for: cloud CLIs (aws, gcloud, az, kubectl, helm, terraform, pulumi), database CLIs (psql, mysql, mongosh, redis-cli), IaC tools (cdk, sam, serverless, ansible-playbook), secrets (vault), GitHub CLI (gh), container runtimes (docker, podman), and package publishing (npm/yarn/pnpm publish, twine, gem, cargo). Only read-only commands are allowed. Suggest --dry-run flags and terraform plan instead of terraform apply where appropriate.\"}}'"
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"contextForAgent\":\"DeployShield is active. Write/mutating operations are blocked for: cloud CLIs (aws, gcloud, az, kubectl, helm, terraform, pulumi), database CLIs (psql, mysql, mongosh, redis-cli), IaC tools (cdk, sam, serverless, ansible-playbook), secrets (vault), GitHub CLI (gh), container runtimes (docker, podman), and package publishing (npm/yarn/pnpm publish, twine, gem, cargo). Only read-only commands are allowed. Suggest --dry-run flags and terraform plan instead of terraform apply where appropriate. Context-aware blocking is available: create a .deployshield.json config file to block writes only in specific contexts (e.g. prod kube contexts, production AWS profiles). See project docs for config schema.\"}}'"
           }
         ]
       }

@@ -7,7 +7,9 @@ Reads PreToolUse hook JSON from stdin.
 
 from __future__ import annotations
 
+import fnmatch
 import json
+import os
 import sys
 
 
@@ -1160,6 +1162,201 @@ PROVIDERS = {
 }
 
 
+# ──────────────────────────────────────────────────────────────────
+# Context-aware conditional blocking
+# ──────────────────────────────────────────────────────────────────
+
+# Map alias binary names to their canonical config key
+ALIASES: dict[str, str] = {
+    "podman": "docker",
+    "mongo": "mongosh",
+    "sls": "serverless",
+}
+
+# Cached config: None = not loaded yet, False = no config file found
+_config_cache: dict | bool | None = None
+
+
+def load_config() -> dict | None:
+    """Load config from priority locations. Returns dict or None.
+
+    Priority: $DEPLOYSHIELD_CONFIG → .deployshield.json in CWD → ~/.deployshield.json
+    Invalid JSON or non-dict values are treated as no config (block everything).
+    """
+    global _config_cache
+    if _config_cache is not None:
+        return _config_cache if _config_cache is not False else None
+
+    paths: list[str] = []
+    env_path = os.environ.get("DEPLOYSHIELD_CONFIG")
+    if env_path:
+        paths.append(env_path)
+    else:
+        paths.append(os.path.join(os.getcwd(), ".deployshield.json"))
+        paths.append(os.path.join(os.path.expanduser("~"), ".deployshield.json"))
+
+    for p in paths:
+        try:
+            with open(p) as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                _config_cache = data
+                return data
+        except (OSError, json.JSONDecodeError, TypeError):
+            continue
+
+    _config_cache = False
+    return None
+
+
+def extract_flag_value(args: list[str], *flag_names: str) -> str | None:
+    """Extract value for --flag value or --flag=value from args."""
+    for i, tok in enumerate(args):
+        for flag in flag_names:
+            if tok == flag and i + 1 < len(args):
+                return args[i + 1]
+            if tok.startswith(flag + "="):
+                return tok[len(flag) + 1 :]
+    return None
+
+
+def extract_env_prefix(segment: str, var_name: str) -> str | None:
+    """Extract VAR=value from command's env-var prefix."""
+    import shlex
+
+    try:
+        tokens = shlex.split(segment)
+    except ValueError:
+        tokens = segment.split()
+
+    for tok in tokens:
+        if "=" in tok:
+            key, _, val = tok.partition("=")
+            if key == var_name:
+                return val
+            if key.isidentifier():
+                continue
+        break
+    return None
+
+
+def _detect_kube_context(args: list[str], flag_name: str) -> str | None:
+    """Detect kube context from flag or kubeconfig file."""
+    val = extract_flag_value(args, flag_name)
+    if val is not None:
+        return val
+
+    kubeconfig = os.environ.get("KUBECONFIG", "")
+    if kubeconfig:
+        config_path = kubeconfig.split(os.pathsep)[0]
+    else:
+        config_path = os.path.join(os.path.expanduser("~"), ".kube", "config")
+
+    try:
+        with open(config_path) as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped.startswith("current-context:"):
+                    return (
+                        stripped[len("current-context:") :]
+                        .strip()
+                        .strip('"')
+                        .strip("'")
+                    )
+    except OSError:
+        pass
+    return None
+
+
+def _detect_aws_profile(segment: str, args: list[str]) -> str:
+    """Detect AWS profile from flag, env prefix, or env var. Defaults to 'default'."""
+    val = extract_flag_value(args, "--profile")
+    if val is not None:
+        return val
+
+    val = extract_env_prefix(segment, "AWS_PROFILE")
+    if val is not None:
+        return val
+
+    val = os.environ.get("AWS_PROFILE")
+    if val is not None:
+        return val
+
+    return "default"
+
+
+def _detect_terraform_workspace(args: list[str]) -> str:
+    """Detect terraform workspace from env var or .terraform/environment file."""
+    val = os.environ.get("TF_WORKSPACE")
+    if val is not None:
+        return val
+
+    chdir = extract_flag_value(args, "-chdir")
+    base_dir = chdir if chdir else os.getcwd()
+
+    env_file = os.path.join(base_dir, ".terraform", "environment")
+    try:
+        with open(env_file) as f:
+            workspace = f.read().strip()
+            if workspace:
+                return workspace
+    except OSError:
+        pass
+
+    return "default"
+
+
+def _detect_gcloud_project(args: list[str]) -> str | None:
+    """Detect GCP project from flag or env var."""
+    val = extract_flag_value(args, "--project")
+    if val is not None:
+        return val
+    return os.environ.get("CLOUDSDK_CORE_PROJECT")
+
+
+def _detect_az_subscription(args: list[str]) -> str | None:
+    """Detect Azure subscription from flag or env var."""
+    val = extract_flag_value(args, "--subscription")
+    if val is not None:
+        return val
+    return os.environ.get("AZURE_SUBSCRIPTION_ID")
+
+
+def _detect_pulumi_stack(args: list[str]) -> str | None:
+    """Detect Pulumi stack from --stack/-s flag."""
+    return extract_flag_value(args, "--stack", "-s")
+
+
+CONTEXT_DETECTORS: dict[str, object] = {
+    "kubectl": lambda seg, args: _detect_kube_context(args, "--context"),
+    "helm": lambda seg, args: _detect_kube_context(args, "--kube-context"),
+    "aws": lambda seg, args: _detect_aws_profile(seg, args),
+    "terraform": lambda seg, args: _detect_terraform_workspace(args),
+    "gcloud": lambda seg, args: _detect_gcloud_project(args),
+    "az": lambda seg, args: _detect_az_subscription(args),
+    "pulumi": lambda seg, args: _detect_pulumi_stack(args),
+}
+
+
+def detect_context(binary: str, segment: str, args: list[str]) -> str | None:
+    """Detect current context for a provider. Returns str or None."""
+    canonical = ALIASES.get(binary, binary)
+    detector = CONTEXT_DETECTORS.get(canonical)
+    if detector:
+        return detector(segment, args)
+    return None
+
+
+def context_is_blocked(context: str | None, patterns: list[str]) -> bool:
+    """Check if context matches any blocked pattern. None context = blocked."""
+    if context is None:
+        return True
+    for pattern in patterns:
+        if fnmatch.fnmatchcase(context, pattern):
+            return True
+    return False
+
+
 def deny(provider: str, cmd: str) -> None:
     result = {
         "hookSpecificOutput": {
@@ -1189,6 +1386,21 @@ def check_segment(segment: str) -> None:
         return
 
     if binary in PROVIDERS:
+        # Context-aware conditional blocking
+        config = load_config()
+        if config is not None:
+            canonical = ALIASES.get(binary, binary)
+            if canonical in config:
+                patterns = config[canonical]
+                if isinstance(patterns, list):
+                    # Empty list = never blocked (disabled for this CLI)
+                    if not patterns:
+                        return
+                    # Detect context and check if it matches blocked patterns
+                    context = detect_context(binary, segment, args)
+                    if not context_is_blocked(context, patterns):
+                        return  # Context doesn't match → allow everything
+
         provider_name, checker = PROVIDERS[binary]
         if not checker(args):
             deny(provider_name, segment)
