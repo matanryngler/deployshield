@@ -54,7 +54,14 @@ Large Language Models (LLMs) are incredibly capable but can accidentally execute
 
 By default, DeployShield blocks ALL write operations. Create a `.deployshield.json` file to allow writes in non-production contexts.
 
-**Example Config (`.deployshield.json`):**
+### Use Cases
+
+- **🛡️ Safe Local Development**: Allow destructive commands on your local machine or dev clusters, but keep the guardrails on for anything that touches production.
+- **🤝 Team-Wide Guardrails**: Commit a `.deployshield.json` to your project repository to ensure that every developer follows the same safety standards.
+- **🏗️ CI/CD Migration**: Force changes through PRs by blocking manual applies in production environments.
+
+### Examples
+
 ```json
 {
   "kubectl": ["prod-cluster", "production", "prod-*"],
@@ -62,7 +69,8 @@ By default, DeployShield blocks ALL write operations. Create a `.deployshield.js
   "terraform": ["prod-workspace"]
 }
 ```
-*Result: `kubectl apply` is allowed on your local `minikube` but blocked on `prod-cluster-01`.*
+
+For detailed configuration options, see the **[Configuration Guide](docs/configuration.md)**.
 
 ---
 
@@ -79,6 +87,8 @@ DeployShield provides deep protection that handles common bypass attempts:
 ## 🤝 Contributing
 
 This project uses **`uv`** for dependency management and **`pre-commit`** for quality control.
+
+To understand how DeployShield works under the hood, check the **[Internals Guide](docs/internals.md)**.
 
 ```bash
 # Run tests

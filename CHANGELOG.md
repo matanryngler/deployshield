@@ -49,5 +49,3 @@
 
 * use manifest mode for release-please and bootstrap v1.0.0 ([2fb3da2](https://github.com/matanryngler/deployshield/commit/2fb3da2f57f132ce5079dd4924a76e221a243a7a))
 * use manifest mode for release-please and set version to 1.0.0 ([d864d50](https://github.com/matanryngler/deployshield/commit/d864d509e161648e03e853cb95864d8f75da2358))
-
-## Changelog
