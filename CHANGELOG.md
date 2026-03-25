@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.0](https://github.com/matanryngler/deployshield/compare/v1.2.1...v1.3.0) (2026-03-25)
+
+
+### Features
+
+* add context-aware conditional blocking ([dcf4955](https://github.com/matanryngler/deployshield/commit/dcf4955a149951210d9fc4a6b4a872d7fb761700))
+* add context-aware conditional blocking ([637877b](https://github.com/matanryngler/deployshield/commit/637877b45458a4ed5004efa456a54d347f8f72ee))
+* implement recursive validation for bash/sh -c wrappers ([5f9c55e](https://github.com/matanryngler/deployshield/commit/5f9c55ebb5af041f9d0428f4be6148eae61c4d99))
+* implement sudo and env unwrapping in normalize_segment ([10667be](https://github.com/matanryngler/deployshield/commit/10667bec9d61499126c36d6846baae4310fbfe51))
+
 ## [1.2.1](https://github.com/matanryngler/deployshield/compare/v1.2.0...v1.2.1) (2026-02-12)
 
 
