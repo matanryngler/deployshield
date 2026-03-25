@@ -146,6 +146,38 @@ echo '{"docker": []}' > .deployshield.json
 - **🤝 Team-Wide Guardrails**: Commit a `.deployshield.json` to your project repository to ensure that every developer (and their AI agent) follows the same safety standards for that specific project.
 - **🏗️ CI/CD Migration**: If you're moving to a "GitOps" model where only CI should perform applies, you can use DeployShield to block all manual applies in your production environments, forcing the agent to propose a PR instead.
 
+### Common Configuration Examples
+
+#### 🛠️ Kubernetes & Helm (Prod only)
+Block modifications to production clusters while allowing them elsewhere.
+```json
+{
+  "kubectl": ["prod-cluster", "production", "prod-*"],
+  "helm": ["prod-cluster", "production", "prod-*"]
+}
+```
+
+#### ☁️ AWS (Safe Profiles)
+Only allow write operations on a specific "sandbox" profile.
+```json
+{
+  "aws": ["production", "staging", "default"]
+}
+```
+*Note: Since DeployShield is default-deny, listing only these profiles will block writes on them while allowing them on any other profile not listed.*
+
+#### 🏢 Enterprise Suite
+A comprehensive configuration for a typical enterprise environment.
+```json
+{
+  "kubectl": ["prod-*"],
+  "aws": ["production"],
+  "gcloud": ["*-prod"],
+  "terraform": ["production"],
+  "npm": ["production-registry"]
+}
+```
+
 ## Installation
 
 ### Via Plugin Marketplace (recommended)
