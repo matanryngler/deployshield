@@ -1,11 +1,15 @@
 {
   "name": "deployshield",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Production safety guardrails that block write/mutating operations on cloud, database, IaC, and deployment CLIs.",
   "author": "Matan Ryngler",
   "repository": "https://github.com/matanryngler/deployshield",
   "license": "MIT",
   "main": "hooks/hooks.json",
-  "skills": ["skills/gemini/SKILL.md"],
-  "commands": ["commands/deployshield-status.md"]
+  "skills": [
+    "skills/gemini/SKILL.md"
+  ],
+  "commands": [
+    "commands/deployshield-status.md"
+  ]
 }

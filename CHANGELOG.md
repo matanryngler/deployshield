@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.0](https://github.com/matanryngler/deployshield/compare/v1.3.0...v1.4.0) (2026-03-25)
+
+
+### Features
+
+* add native Gemini CLI support ([ae54d92](https://github.com/matanryngler/deployshield/commit/ae54d9256d2adc6b5e8f7fd16718ea147f961a9d))
+* complete DX improvements, Gemini support and README revamp ([99bc14a](https://github.com/matanryngler/deployshield/commit/99bc14a081d0814b263650b3eb6cf22877b7a9a3))
+* DX improvements, Gemini support and README revamp ([db685a1](https://github.com/matanryngler/deployshield/commit/db685a1cf7efeb50eee5b6537e58a4b3f4507df4))
+* make hooks cross-platform compatible for Claude and Gemini ([224ea19](https://github.com/matanryngler/deployshield/commit/224ea193917dbe5948317bccd0e5b8cd9f031b61))
+
 ## [1.3.0](https://github.com/matanryngler/deployshield/compare/v1.2.1...v1.3.0) (2026-03-25)
 
 
