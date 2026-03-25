@@ -1,22 +1,47 @@
-# DeployShield
+# 🛡️ DeployShield
 
-A Claude Code plugin that acts as a guardrail to prevent write/mutating commands against production environments. DeployShield intercepts Bash commands before execution using deterministic PreToolUse hooks and blocks dangerous operations while allowing read-only commands to pass through.
+[![Tests](https://github.com/matanryngler/deployshield/actions/workflows/test.yml/badge.svg)](https://github.com/matanryngler/deployshield/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/matanryngler/deployshield)](https://github.com/matanryngler/deployshield/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python Support](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+
+Production safety guardrails for **Claude Code** and **Gemini CLI**.
+
+DeployShield is a deterministic safety layer for AI-driven development. It intercepts Bash commands before execution using deterministic PreToolUse hooks and blocks dangerous operations while allowing read-only commands to pass through.
+
+## Why DeployShield?
+
+DeployShield is a deterministic safety layer for AI-driven development. While Large Language Models (LLMs) are powerful, they are not infallible. DeployShield ensures that:
+
+- **🛡️ Accidental Mutations are Blocked**: Commands that could delete, terminate, or modify production resources are intercepted before execution.
+- **⚡ Deterministic, Not Probabilistic**: Unlike "system prompt instructions" which an LLM can ignore, DeployShield uses hardcoded, rule-based validation.
+- **🔍 Read-Only Freedom**: You can still use all the read-only commands (`get`, `list`, `describe`) to inspect your environments without friction.
+- **🌐 Context-Aware**: Use `.deployshield.json` to define when to be strict (e.g., `prod-cluster`) and when to be relaxed (e.g., `dev-cluster`).
+
+## Cross-Platform Support
+
+DeployShield works across the most popular AI CLI agents:
+
+| Agent | Integration | Benefits |
+|-------|-------------|----------|
+| **Claude Code** | Native Plugin | PreToolUse hooks intercept every `bash` command before it hits your terminal. |
+| **Gemini CLI** | Native Skill | Uses the same core validator to provide consistent safety guardrails. |
 
 ## How It Works
 
 ```mermaid
 flowchart LR
-    A["Claude runs\na Bash command"] --> B{"DeployShield\nPreToolUse Hook"}
+    A["Claude/Gemini runs\na Bash command"] --> B{"DeployShield\nPreToolUse Hook"}
     B -->|"Recognized CLI +\nread-only"| C["Command executes"]
     B -->|"Not a\nguarded CLI"| C
     B -->|"Recognized CLI +\nwrite/mutate"| D["Blocked with\nreason message"]
 ```
 
-Every Bash command Claude attempts to run is piped through DeployShield's validation script. If it detects a recognized CLI, it checks the subcommand against a curated safe-list of read-only operations. If the action isn't on the list, it's blocked. Unrecognized commands pass through untouched.
+Every Bash command the AI attempts to run is piped through DeployShield's validation script. If it detects a recognized CLI, it checks the subcommand against a curated safe-list of read-only operations. If the action isn't on the list, it's blocked. Unrecognized commands pass through untouched.
 
 ## Supported Providers
 
-### Cloud
+### ☁️ Cloud & Infrastructure
 
 | Provider | CLI | Allowed (read-only) | Blocked (examples) |
 |----------|-----|---------------------|-------------------|
@@ -26,7 +51,7 @@ Every Bash command Claude attempts to run is piped through DeployShield's valida
 | **Kubernetes** | `kubectl` | `get`, `describe`, `logs`, `explain`, `api-resources`, `api-versions`, `cluster-info`, `version`, `config view`, `config get-*`, `config current-context`, `auth can-i`, `diff`, `top`, `wait`, any command with `--dry-run` | `apply`, `delete`, `patch`, `edit`, `scale`, `rollout` |
 | **Helm** | `helm` | `list`, `ls`, `get`, `show`, `status`, `history`, `search`, `repo list`, `template`, `lint`, `verify`, `version`, `env`, any command with `--dry-run` | `install`, `upgrade`, `uninstall`, `rollback` |
 
-### Databases
+### 🗄️ Databases
 
 | Provider | CLI | Allowed (read-only) | Blocked (examples) |
 |----------|-----|---------------------|-------------------|
@@ -35,7 +60,7 @@ Every Bash command Claude attempts to run is piped through DeployShield's valida
 | **MongoDB** | `mongosh` | `--eval "db.col.find()"`, `--eval "show dbs"` | `--eval "db.col.drop()"`, `--eval "db.col.deleteMany()"`, `-f script.js` |
 | **Redis** | `redis-cli` | `GET`, `KEYS`, `SCAN`, `INFO`, `PING`, `TTL`, `HGETALL` | `SET`, `DEL`, `FLUSHALL`, `FLUSHDB`, `CONFIG SET` |
 
-### IaC & Deployment Tools
+### 🏗️ IaC & Deployment Tools
 
 | Provider | CLI | Allowed (read-only) | Blocked (examples) |
 |----------|-----|---------------------|-------------------|
@@ -46,7 +71,7 @@ Every Bash command Claude attempts to run is piped through DeployShield's valida
 | **Serverless** | `serverless`/`sls` | `info`, `print`, `package`, `invoke local` | `deploy`, `remove` |
 | **Ansible** | `ansible-playbook` | `--check`, `--syntax-check`, `--list-hosts`, `--list-tasks` | Running without `--check` |
 
-### Secrets, GitHub, Containers & Publishing
+### 🔐 Secrets, GitHub, Containers & Publishing
 
 | Provider | CLI | Allowed (read-only) | Blocked (examples) |
 |----------|-----|---------------------|-------------------|
@@ -57,6 +82,31 @@ Every Bash command Claude attempts to run is piped through DeployShield's valida
 | **PyPI** | `twine` | Everything else | `upload` |
 | **RubyGems** | `gem` | Everything else | `push`, `yank` |
 | **Cargo** | `cargo` | Everything else | `publish` |
+
+## Core Features
+
+### 🛡️ Recursive Safety
+DeployShield provides deep protection through recursive validation:
+- **Subshells & Backticks**: Validates commands inside `$(...)` and `` `...` ``.
+- **Process Substitution**: Validates commands inside `<(...)` and `>(...)`.
+- **Administrative Wrappers**: Transparently unwraps `sudo` and `env` to check the underlying command.
+- **Shell Wrappers**: Recursively validates command strings passed to `bash -c` and `sh -c`.
+
+### 🌐 Context-Aware Blocking
+By default, DeployShield blocks ALL write operations for every guarded CLI. If you want to block writes only in specific contexts (e.g. production Kubernetes clusters, the production AWS profile), create a `.deployshield.json` config file.
+
+#### Config File Location
+Config is loaded from the first location found:
+1. `$DEPLOYSHIELD_CONFIG` environment variable (explicit path)
+2. `.deployshield.json` in the current working directory (per-project)
+3. `~/.deployshield.json` (global)
+
+#### Context Detection Examples
+| CLI | What's Detected | Sources (in priority order) |
+|-----|----------------|----------------------------|
+| `kubectl` | Kube context | `--context` flag → `current-context` from kubeconfig |
+| `aws` | AWS profile | `--profile` flag → `AWS_PROFILE=x` env prefix → `AWS_PROFILE` env var → `"default"` |
+| `terraform` | Workspace | `TF_WORKSPACE` env var → `.terraform/environment` file → `"default"` |
 
 ## Edge Cases Handled
 
@@ -71,116 +121,9 @@ DeployShield uses a quote-aware parser that correctly handles:
 - **SQL injection in flags** — `psql -c "DROP TABLE users"` is caught and blocked
 - **Non-guarded commands** — `git push`, `make build`, etc. pass through without interference
 
-## Context-Aware Blocking
-
-By default, DeployShield blocks ALL write operations for every guarded CLI. If you want to block writes only in specific contexts (e.g. production Kubernetes clusters, the production AWS profile), create a `.deployshield.json` config file.
-
-### Config File Location
-
-Config is loaded from the first location found:
-
-1. `$DEPLOYSHIELD_CONFIG` environment variable (explicit path)
-2. `.deployshield.json` in the current working directory (per-project)
-3. `~/.deployshield.json` (global)
-4. No config file → block everything (current behavior, fully backward-compatible)
-
-### Config Schema
-
-Keys are CLI binary names, values are lists of context patterns ([fnmatch](https://docs.python.org/3/library/fnmatch.html) globs, case-sensitive):
-
-```json
-{
-  "kubectl": ["prod", "production", "prod-*"],
-  "helm": ["prod", "production"],
-  "aws": ["production"],
-  "terraform": ["production", "default"],
-  "gcloud": ["my-prod-project"],
-  "az": ["prod-subscription"]
-}
-```
-
-### Semantics
-
-| Config State | Behavior |
-|---|---|
-| Provider **not in config** | Blocked everywhere (current default behavior) |
-| Provider with patterns (e.g. `["prod", "prod-*"]`) | Blocked **only** when the detected context matches a pattern |
-| Provider with empty list (`[]`) | **Never** blocked (disables DeployShield for that CLI) |
-
-When context cannot be detected (e.g. no kubeconfig, no `--context` flag), writes are blocked. This is the secure default — you can't bypass blocking by deleting your kubeconfig.
-
-### Context Detection
-
-| CLI | What's Detected | Sources (in priority order) |
-|-----|----------------|----------------------------|
-| `kubectl` | Kube context | `--context` flag → `current-context` from kubeconfig |
-| `helm` | Kube context | `--kube-context` flag → `current-context` from kubeconfig |
-| `aws` | AWS profile | `--profile` flag → `AWS_PROFILE=x` env prefix → `AWS_PROFILE` env var → `"default"` |
-| `terraform` | Workspace | `TF_WORKSPACE` env var → `.terraform/environment` file → `"default"` |
-| `gcloud` | GCP project | `--project` flag → `CLOUDSDK_CORE_PROJECT` env var |
-| `az` | Subscription | `--subscription` flag → `AZURE_SUBSCRIPTION_ID` env var |
-| `pulumi` | Stack | `--stack`/`-s` flag |
-
-CLI aliases are resolved automatically: `podman` → `docker`, `mongo` → `mongosh`, `sls` → `serverless`.
-
-### Examples
-
-```bash
-# Block kubectl writes only in prod contexts
-echo '{"kubectl": ["prod", "prod-*"]}' > .deployshield.json
-
-# In a dev context — writes are allowed:
-kubectl --context=dev apply -f deploy.yaml  # ✅ Allowed
-
-# In a prod context — writes are blocked, reads still work:
-kubectl --context=prod apply -f deploy.yaml  # ❌ Blocked
-kubectl --context=prod get pods              # ✅ Allowed (read-only)
-
-# Disable DeployShield entirely for docker:
-echo '{"docker": []}' > .deployshield.json
-```
-
-### Use Cases
-
-- **🛡️ Safe Local Development**: Allow yourself to use destructive commands on your local machine or dev clusters, but keep the guardrails on for anything that touches production.
-- **🤝 Team-Wide Guardrails**: Commit a `.deployshield.json` to your project repository to ensure that every developer (and their AI agent) follows the same safety standards for that specific project.
-- **🏗️ CI/CD Migration**: If you're moving to a "GitOps" model where only CI should perform applies, you can use DeployShield to block all manual applies in your production environments, forcing the agent to propose a PR instead.
-
-### Common Configuration Examples
-
-#### 🛠️ Kubernetes & Helm (Prod only)
-Block modifications to production clusters while allowing them elsewhere.
-```json
-{
-  "kubectl": ["prod-cluster", "production", "prod-*"],
-  "helm": ["prod-cluster", "production", "prod-*"]
-}
-```
-
-#### ☁️ AWS (Safe Profiles)
-Only allow write operations on a specific "sandbox" profile.
-```json
-{
-  "aws": ["production", "staging", "default"]
-}
-```
-*Note: Since DeployShield is default-deny, listing only these profiles will block writes on them while allowing them on any other profile not listed.*
-
-#### 🏢 Enterprise Suite
-A comprehensive configuration for a typical enterprise environment.
-```json
-{
-  "kubectl": ["prod-*"],
-  "aws": ["production"],
-  "gcloud": ["*-prod"],
-  "terraform": ["production"],
-  "npm": ["production-registry"]
-}
-```
-
 ## Installation
 
-### Via Plugin Marketplace (recommended)
+### For Claude Code (via Plugin Marketplace)
 
 Register the marketplace and install:
 
@@ -189,44 +132,18 @@ claude plugin marketplace add matanryngler/deployshield
 claude plugin install deployshield@deployshield
 ```
 
+### For Gemini CLI (via Skills)
+
+```bash
+gemini --skill-dir ./skills/gemini
+```
+
 ### Manual
 
 ```bash
 git clone https://github.com/matanryngler/deployshield.git
 claude --plugin-dir ./deployshield
 ```
-
-### Verify it's working
-
-Start a new Claude Code session and try a write command — it should be blocked:
-
-```
-> kubectl delete pod my-pod
-# => Blocked: kubectl 'delete' is not in the safe-list for kubernetes
-```
-
-## Project Structure
-
-```
-deployshield/
-├── .claude-plugin/
-│   └── plugin.json                # Plugin manifest
-├── hooks/
-│   ├── hooks.json                 # Hook event configuration
-│   └── scripts/
-│       └── validate-cloud-command.py   # Core validation script
-├── skills/
-│   └── deployshield/
-│       └── SKILL.md               # Skill context for Claude
-└── README.md
-```
-
-| Component | Purpose |
-|-----------|---------|
-| **plugin.json** | Declares the plugin name, version, and metadata |
-| **hooks.json** | Registers two hooks: a PreToolUse hook on Bash commands (runs the validator) and a SessionStart hook (informs Claude that DeployShield is active) |
-| **validate-cloud-command.py** | The core validation engine. Parses commands from hook JSON stdin, splits compound commands respecting shell quoting, normalizes binaries, and checks against per-provider safe-lists |
-| **SKILL.md** | Activates on infrastructure files to remind Claude which operations are safe and to suggest `--dry-run` / `plan` alternatives |
 
 ## How the Validator Works
 
@@ -240,8 +157,8 @@ deployshield/
 
 ## Requirements
 
-- Python 3.8+ (used by the validation script; ships with macOS and most Linux distros)
-- Claude Code with plugin support
+- Python 3.9+ (used by the validation script)
+- Claude Code or Gemini CLI
 
 ## Testing
 
@@ -264,17 +181,24 @@ echo '{"tool_input":{"command":"gh pr merge 123"}}' | ./hooks/scripts/validate-c
 echo '{"tool_input":{"command":"npm test"}}' | ./hooks/scripts/validate-cloud-command.py
 ```
 
-### Recursive Safety
+## Project Structure
 
-DeployShield provides deep protection through recursive validation:
-- **Subshells & Backticks**: Validates commands inside `$(...)` and `` `...` ``.
-- **Process Substitution**: Validates commands inside `<(...)` and `>(...)`.
-- **Administrative Wrappers**: Transparently unwraps `sudo` and `env` to check the underlying command.
-- **Shell Wrappers**: Recursively validates command strings passed to `bash -c` and `sh -c`.
+```
+deployshield/
+├── .claude-plugin/
+│   └── plugin.json                # Plugin manifest
+├── hooks/
+│   ├── hooks.json                 # Hook event configuration
+│   └── scripts/
+│       └── validate-cloud-command.py   # Core validation script
+├── skills/
+│   ├── deployshield/
+│   │   └── SKILL.md               # Skill context for Claude
+│   └── gemini/
+│       └── SKILL.md               # Skill context for Gemini
+└── README.md
+```
 
-This ensures that common bypasses like `sudo terraform apply` or `bash -c "kubectl delete pods --all"` are correctly intercepted.
-
-### License
-
+## License
 
 MIT
