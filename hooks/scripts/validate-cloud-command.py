@@ -251,6 +251,7 @@ def normalize_segment(seg: str) -> tuple[str, list[str]]:
     Also recursively unwraps sudo and env.
     """
     import shlex
+
     try:
         tokens = shlex.split(seg)
     except ValueError:
@@ -277,7 +278,7 @@ def normalize_segment(seg: str) -> tuple[str, list[str]]:
                 idx += 1
                 continue
             break
-        
+
         # Strip wrappers (sudo, env)
         binary_name = tok.rsplit("/", 1)[-1] if "/" in tok else tok
         if binary_name in WRAPPERS:
