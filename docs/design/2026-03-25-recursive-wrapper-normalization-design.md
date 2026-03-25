@@ -4,7 +4,7 @@
 **Status:** Draft
 
 ## Problem Statement
-DeployShield can be bypassed using "wrapper" commands that are not in the `PROVIDERS` list. 
+DeployShield can be bypassed using "wrapper" commands that are not in the `PROVIDERS` list.
 Currently, the validator only checks the primary binary of a command segment. This means:
 1. `sudo terraform apply` is **ALLOWED** (because `sudo` is not guarded).
 2. `bash -c "kubectl delete pods --all"` is **ALLOWED** (because `bash` is not guarded).

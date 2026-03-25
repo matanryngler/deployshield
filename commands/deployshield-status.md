@@ -46,4 +46,21 @@ DeployShield is **active**. All Bash commands are validated before execution.
 | `gem` | RubyGems | Everything except `push`/`yank` |
 | `cargo` | Cargo | Everything except `publish` |
 
-**Total: 27 guarded CLIs** — all using a default-deny model (if the CLI is recognized but the subcommand is not explicitly safe-listed, it is blocked).
+**Total: 27 guarded CLIs** — all using a default-deny model.
+
+## Context-Aware Blocking
+
+DeployShield supports conditional blocking based on your current environment (e.g., K8s context, AWS profile).
+
+- **Config File:** `.deployshield.json` in project root or `~/.deployshield.json`.
+- **Status:** Active (writes are blocked only in contexts matching config patterns).
+- **Default:** If no config exists, ALL writes are blocked for guarded CLIs.
+
+### Example Config
+```json
+{
+  "kubectl": ["prod-*", "production"],
+  "aws": ["production"]
+}
+```
+In this example, `kubectl delete` would be allowed in a `dev` context but blocked in `prod-cluster-1`.
