@@ -51,6 +51,21 @@ class TestNormalizeSegment:
         binary, args = v.normalize_segment('echo "unterminated')
         assert binary == "echo"
 
+    def test_sudo_unwrapping(self, v):
+        binary, args = v.normalize_segment("sudo aws s3 ls")
+        assert binary == "aws"
+        assert args == ["s3", "ls"]
+
+    def test_sudo_with_flags(self, v):
+        binary, args = v.normalize_segment("sudo -u admin -E terraform plan")
+        assert binary == "terraform"
+        assert args == ["plan"]
+
+    def test_env_unwrapping(self, v):
+        binary, args = v.normalize_segment("env AWS_PROFILE=prod aws s3 ls")
+        assert binary == "aws"
+        assert args == ["s3", "ls"]
+
 
 class TestSkipFlags:
     def test_no_flags(self, v):

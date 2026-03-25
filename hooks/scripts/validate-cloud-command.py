@@ -146,15 +146,111 @@ def split_compound_command(cmd: str) -> list[str]:
     return segments
 
 
+def extract_nested_contents(cmd: str) -> list[str]:
+    """Extract contents from $(...), `...`, <(...), and >(...) while respecting quoting.
+    Only returns top-level nested commands to avoid redundant checks (recursion handles deeper).
+    """
+    nested: list[str] = []
+    i = 0
+    n = len(cmd)
+
+    in_single_quote = False
+    in_double_quote = False
+
+    # (type, start_index, paren_depth_at_start)
+    # type is "(" for subshells, "`" for backticks
+    stack: list[tuple[str, int, int]] = []
+    # General paren depth tracking (for normal parens inside subshells)
+    paren_depth = 0
+
+    while i < n:
+        c = cmd[i]
+
+        # ── Escape handling ──────────────────────────────────
+        if c == "\\" and not in_single_quote:
+            i += 2
+            continue
+
+        # ── Single-quote context ─────────────────────────────
+        if in_single_quote:
+            if c == "'":
+                in_single_quote = False
+            i += 1
+            continue
+
+        # ── Backtick opener/closer ───────────────────────────
+        if c == "`":
+            if not in_single_quote:
+                # If we're inside a backtick we're tracking
+                if stack and stack[-1][0] == "`":
+                    type, start, _ = stack.pop()
+                    if not stack:
+                        nested.append(cmd[start:i])
+                else:
+                    stack.append(("`", i + 1, paren_depth))
+            i += 1
+            continue
+
+        # ── Quote openers ────────────────────────────────────
+        if c == "'":
+            if not in_double_quote:
+                in_single_quote = True
+            i += 1
+            continue
+
+        if c == '"':
+            in_double_quote = not in_double_quote
+            i += 1
+            continue
+
+        # ── Subshell openers ─────────────────────────────────
+        if c == "$" and i + 1 < n and cmd[i + 1] == "(":
+            stack.append(("(", i + 2, paren_depth))
+            i += 2
+            continue
+
+        if c in "<>" and i + 1 < n and cmd[i + 1] == "(":
+            stack.append(("(", i + 2, paren_depth))
+            i += 2
+            continue
+
+        # ── Parentheses tracking ─────────────────────────────
+        if c == "(":
+            paren_depth += 1
+            i += 1
+            continue
+
+        if c == ")":
+            if stack and stack[-1][0] == "(":
+                # Only close if it matches the paren_depth when it started
+                _, start, depth_at_start = stack[-1]
+                if paren_depth == depth_at_start:
+                    stack.pop()
+                    if not stack:
+                        nested.append(cmd[start:i])
+                else:
+                    # Just a normal nested paren inside a subshell
+                    paren_depth -= 1
+            else:
+                paren_depth -= 1
+            i += 1
+            continue
+
+        i += 1
+
+    return nested
+
+
 # ──────────────────────────────────────────────────────────────────
 # Normalize a single command segment
 # ──────────────────────────────────────────────────────────────────
 
 
 def normalize_segment(seg: str) -> tuple[str, list[str]]:
-    """Strip env-var prefixes and full paths, return (binary, arg_tokens)."""
+    """Strip env-var prefixes and full paths, return (binary, arg_tokens).
+    Also recursively unwraps sudo and env.
+    """
     import shlex
-
     try:
         tokens = shlex.split(seg)
     except ValueError:
@@ -164,15 +260,39 @@ def normalize_segment(seg: str) -> tuple[str, list[str]]:
     if not tokens:
         return ("", [])
 
-    # Strip env-var prefixes (KEY=VALUE ...)
+    # Wrappers that we strip and recurse into
+    WRAPPERS = {"sudo", "env"}
+    # Flags that take a value for these wrappers
+    # sudo: -u user, -g group, -p prompt, -r role, -t type
+    # env: -u name
+    WRAPPER_FLAGS_WITH_VALUE = {"-u", "-g", "-p", "-r", "-t"}
+
     idx = 0
     while idx < len(tokens):
         tok = tokens[idx]
+        # Strip env-var prefixes (KEY=VALUE ...)
         if "=" in tok:
             key = tok.split("=", 1)[0]
             if key.isidentifier():
                 idx += 1
                 continue
+            break
+        
+        # Strip wrappers (sudo, env)
+        binary_name = tok.rsplit("/", 1)[-1] if "/" in tok else tok
+        if binary_name in WRAPPERS:
+            idx += 1
+            # Skip common wrapper flags
+            while idx < len(tokens):
+                t = tokens[idx]
+                if t in WRAPPER_FLAGS_WITH_VALUE:
+                    idx += 2
+                    continue
+                if t.startswith("-"):
+                    idx += 1
+                    continue
+                break
+            continue
         break
 
     if idx >= len(tokens):
@@ -1087,15 +1207,19 @@ def check_docker(args: list[str]) -> bool:
 # ──────────────────────────────────────────────────────────────────
 
 
-def check_npm_publish(binary: str, args: list[str]) -> bool | None:
-    """Check npm/yarn/pnpm for publish commands. Returns None if not relevant."""
-    if binary not in ("npm", "yarn", "pnpm"):
-        return None
-
+def check_npm(args: list[str]) -> bool:
+    """Check npm/yarn/pnpm for publish commands."""
     if not args:
         return True
 
-    subcmd = args[0]
+    # Skip global flags to find subcommand
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        i += 1
+    if i >= len(args):
+        return True
+
+    subcmd = args[i]
     # Block publish/unpublish, allow everything else
     if subcmd in ("publish", "unpublish"):
         return False
@@ -1159,6 +1283,9 @@ PROVIDERS = {
     "twine": ("PyPI", check_twine),
     "gem": ("RubyGems", check_gem),
     "cargo": ("Cargo", check_cargo),
+    "npm": ("npm", check_npm),
+    "yarn": ("Yarn", check_npm),
+    "pnpm": ("pnpm", check_npm),
 }
 
 
@@ -1171,6 +1298,8 @@ ALIASES: dict[str, str] = {
     "podman": "docker",
     "mongo": "mongosh",
     "sls": "serverless",
+    "yarn": "npm",
+    "pnpm": "npm",
 }
 
 # Cached config: None = not loaded yet, False = no config file found
@@ -1248,23 +1377,24 @@ def _detect_kube_context(args: list[str], flag_name: str) -> str | None:
 
     kubeconfig = os.environ.get("KUBECONFIG", "")
     if kubeconfig:
-        config_path = kubeconfig.split(os.pathsep)[0]
+        paths = [p for p in kubeconfig.split(os.pathsep) if p]
     else:
-        config_path = os.path.join(os.path.expanduser("~"), ".kube", "config")
+        paths = [os.path.join(os.path.expanduser("~"), ".kube", "config")]
 
-    try:
-        with open(config_path) as f:
-            for line in f:
-                stripped = line.strip()
-                if stripped.startswith("current-context:"):
-                    return (
-                        stripped[len("current-context:") :]
-                        .strip()
-                        .strip('"')
-                        .strip("'")
-                    )
-    except OSError:
-        pass
+    for path in paths:
+        try:
+            with open(path) as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped.startswith("current-context:"):
+                        return (
+                            stripped[len("current-context:") :]
+                            .strip()
+                            .strip('"')
+                            .strip("'")
+                        )
+        except OSError:
+            continue
     return None
 
 
@@ -1364,7 +1494,11 @@ def deny(provider: str, cmd: str) -> None:
             "permissionDecision": "deny",
             "permissionDecisionReason": (
                 f"DeployShield: Blocked {provider} write operation "
-                f"'{cmd.strip()}'. Only read-only commands are allowed."
+                f"'{cmd.strip()}'. Only read-only commands are allowed in this context. "
+                "This is an intentional safety guardrail to prevent accidental modifications "
+                "to production or sensitive environments. If you need to perform this action, "
+                "please verify your current context (e.g., kubeconfig, AWS profile) or use a "
+                "read-only alternative like 'plan' or '--dry-run' if supported."
             ),
         }
     }
@@ -1374,15 +1508,17 @@ def deny(provider: str, cmd: str) -> None:
 
 
 def check_segment(segment: str) -> None:
+    # 1. First, recursively check any nested subshells or backticks within this segment.
+    # This prevents bypasses like 'echo $(terraform apply)'.
+    nested = extract_nested_contents(segment)
+    for ncmd in nested:
+        # A nested command might itself be compound (e.g. $(a && b))
+        for iseg in split_compound_command(ncmd):
+            check_segment(iseg)
+
+    # 2. Now check the main binary and arguments of this segment.
     binary, args = normalize_segment(segment)
     if not binary:
-        return
-
-    # Special case: npm/yarn/pnpm — only block publish subcommand
-    pub_result = check_npm_publish(binary, args)
-    if pub_result is not None:
-        if not pub_result:
-            deny("npm", segment)
         return
 
     if binary in PROVIDERS:
