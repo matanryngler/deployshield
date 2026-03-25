@@ -1517,9 +1517,19 @@ def check_segment(segment: str) -> None:
             check_segment(iseg)
 
     # 2. Now check the main binary and arguments of this segment.
+    # normalize_segment recursively unwraps sudo and env.
     binary, args = normalize_segment(segment)
     if not binary:
         return
+
+    # 3. Handle shell wrappers bash -c / sh -c
+    if binary in ("bash", "sh"):
+        cmd_str = extract_flag_value(args, "-c")
+        if cmd_str:
+            # Recursively check each segment inside the -c string
+            for iseg in split_compound_command(cmd_str):
+                check_segment(iseg)
+            return  # The shell itself is safe once its contents are checked
 
     if binary in PROVIDERS:
         # Context-aware conditional blocking
