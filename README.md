@@ -71,6 +71,113 @@ DeployShield uses a quote-aware parser that correctly handles:
 - **SQL injection in flags** — `psql -c "DROP TABLE users"` is caught and blocked
 - **Non-guarded commands** — `git push`, `make build`, etc. pass through without interference
 
+## Context-Aware Blocking
+
+By default, DeployShield blocks ALL write operations for every guarded CLI. If you want to block writes only in specific contexts (e.g. production Kubernetes clusters, the production AWS profile), create a `.deployshield.json` config file.
+
+### Config File Location
+
+Config is loaded from the first location found:
+
+1. `$DEPLOYSHIELD_CONFIG` environment variable (explicit path)
+2. `.deployshield.json` in the current working directory (per-project)
+3. `~/.deployshield.json` (global)
+4. No config file → block everything (current behavior, fully backward-compatible)
+
+### Config Schema
+
+Keys are CLI binary names, values are lists of context patterns ([fnmatch](https://docs.python.org/3/library/fnmatch.html) globs, case-sensitive):
+
+```json
+{
+  "kubectl": ["prod", "production", "prod-*"],
+  "helm": ["prod", "production"],
+  "aws": ["production"],
+  "terraform": ["production", "default"],
+  "gcloud": ["my-prod-project"],
+  "az": ["prod-subscription"]
+}
+```
+
+### Semantics
+
+| Config State | Behavior |
+|---|---|
+| Provider **not in config** | Blocked everywhere (current default behavior) |
+| Provider with patterns (e.g. `["prod", "prod-*"]`) | Blocked **only** when the detected context matches a pattern |
+| Provider with empty list (`[]`) | **Never** blocked (disables DeployShield for that CLI) |
+
+When context cannot be detected (e.g. no kubeconfig, no `--context` flag), writes are blocked. This is the secure default — you can't bypass blocking by deleting your kubeconfig.
+
+### Context Detection
+
+| CLI | What's Detected | Sources (in priority order) |
+|-----|----------------|----------------------------|
+| `kubectl` | Kube context | `--context` flag → `current-context` from kubeconfig |
+| `helm` | Kube context | `--kube-context` flag → `current-context` from kubeconfig |
+| `aws` | AWS profile | `--profile` flag → `AWS_PROFILE=x` env prefix → `AWS_PROFILE` env var → `"default"` |
+| `terraform` | Workspace | `TF_WORKSPACE` env var → `.terraform/environment` file → `"default"` |
+| `gcloud` | GCP project | `--project` flag → `CLOUDSDK_CORE_PROJECT` env var |
+| `az` | Subscription | `--subscription` flag → `AZURE_SUBSCRIPTION_ID` env var |
+| `pulumi` | Stack | `--stack`/`-s` flag |
+
+CLI aliases are resolved automatically: `podman` → `docker`, `mongo` → `mongosh`, `sls` → `serverless`.
+
+### Examples
+
+```bash
+# Block kubectl writes only in prod contexts
+echo '{"kubectl": ["prod", "prod-*"]}' > .deployshield.json
+
+# In a dev context — writes are allowed:
+kubectl --context=dev apply -f deploy.yaml  # ✅ Allowed
+
+# In a prod context — writes are blocked, reads still work:
+kubectl --context=prod apply -f deploy.yaml  # ❌ Blocked
+kubectl --context=prod get pods              # ✅ Allowed (read-only)
+
+# Disable DeployShield entirely for docker:
+echo '{"docker": []}' > .deployshield.json
+```
+
+### Use Cases
+
+- **🛡️ Safe Local Development**: Allow yourself to use destructive commands on your local machine or dev clusters, but keep the guardrails on for anything that touches production.
+- **🤝 Team-Wide Guardrails**: Commit a `.deployshield.json` to your project repository to ensure that every developer (and their AI agent) follows the same safety standards for that specific project.
+- **🏗️ CI/CD Migration**: If you're moving to a "GitOps" model where only CI should perform applies, you can use DeployShield to block all manual applies in your production environments, forcing the agent to propose a PR instead.
+
+### Common Configuration Examples
+
+#### 🛠️ Kubernetes & Helm (Prod only)
+Block modifications to production clusters while allowing them elsewhere.
+```json
+{
+  "kubectl": ["prod-cluster", "production", "prod-*"],
+  "helm": ["prod-cluster", "production", "prod-*"]
+}
+```
+
+#### ☁️ AWS (Safe Profiles)
+Only allow write operations on a specific "sandbox" profile.
+```json
+{
+  "aws": ["production", "staging", "default"]
+}
+```
+*Note: Since DeployShield is default-deny, listing only these profiles will block writes on them while allowing them on any other profile not listed.*
+
+#### 🏢 Enterprise Suite
+A comprehensive configuration for a typical enterprise environment.
+```json
+{
+  "kubectl": ["prod-*"],
+  "aws": ["production"],
+  "gcloud": ["*-prod"],
+  "terraform": ["production"],
+  "npm": ["production-registry"]
+}
+```
+
 ## Installation
 
 ### Via Plugin Marketplace (recommended)
@@ -157,6 +264,17 @@ echo '{"tool_input":{"command":"gh pr merge 123"}}' | ./hooks/scripts/validate-c
 echo '{"tool_input":{"command":"npm test"}}' | ./hooks/scripts/validate-cloud-command.py
 ```
 
-## License
+### Recursive Safety
+
+DeployShield provides deep protection through recursive validation:
+- **Subshells & Backticks**: Validates commands inside `$(...)` and `` `...` ``.
+- **Process Substitution**: Validates commands inside `<(...)` and `>(...)`.
+- **Administrative Wrappers**: Transparently unwraps `sudo` and `env` to check the underlying command.
+- **Shell Wrappers**: Recursively validates command strings passed to `bash -c` and `sh -c`.
+
+This ensures that common bypasses like `sudo terraform apply` or `bash -c "kubectl delete pods --all"` are correctly intercepted.
+
+### License
+
 
 MIT

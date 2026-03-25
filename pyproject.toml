@@ -1,0 +1,29 @@
+[project]
+name = "deployshield"
+version = "1.2.1"
+description = "Production safety guardrails for Claude Code"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Matan Ryngler", email = "matan@example.com" }
+]
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.3.0",
+    "pre-commit>=3.6.0",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]  # Ignore line-too-long
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"

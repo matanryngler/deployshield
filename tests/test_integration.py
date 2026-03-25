@@ -126,3 +126,24 @@ class TestEdgeCases:
         assert code == 0
         result = json.loads(out)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+class TestShellWrappers:
+    def test_bash_c_blocking(self):
+        code, out = run_validator('bash -c "terraform apply"')
+        assert code == 0
+        result = json.loads(out)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_sudo_bash_c_blocking(self):
+        code, out = run_validator('sudo bash -c "kubectl delete pods --all"')
+        assert code == 0
+        result = json.loads(out)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_deeply_wrapped_bypass(self):
+        # sudo -> bash -c -> $(dangerous)
+        code, out = run_validator('sudo bash -c "echo $(terraform destroy)"')
+        assert code == 0
+        result = json.loads(out)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"

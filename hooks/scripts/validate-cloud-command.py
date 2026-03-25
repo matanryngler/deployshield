@@ -7,9 +7,10 @@ Reads PreToolUse hook JSON from stdin.
 
 from __future__ import annotations
 
+import fnmatch
 import json
+import os
 import sys
-
 
 # ──────────────────────────────────────────────────────────────────
 # Command splitting – respects quoting, subshells, escapes
@@ -144,13 +145,110 @@ def split_compound_command(cmd: str) -> list[str]:
     return segments
 
 
+def extract_nested_contents(cmd: str) -> list[str]:
+    """Extract contents from $(...), `...`, <(...), and >(...) while respecting quoting.
+    Only returns top-level nested commands to avoid redundant checks (recursion handles deeper).
+    """
+    nested: list[str] = []
+    i = 0
+    n = len(cmd)
+
+    in_single_quote = False
+    in_double_quote = False
+
+    # (type, start_index, paren_depth_at_start)
+    # type is "(" for subshells, "`" for backticks
+    stack: list[tuple[str, int, int]] = []
+    # General paren depth tracking (for normal parens inside subshells)
+    paren_depth = 0
+
+    while i < n:
+        c = cmd[i]
+
+        # ── Escape handling ──────────────────────────────────
+        if c == "\\" and not in_single_quote:
+            i += 2
+            continue
+
+        # ── Single-quote context ─────────────────────────────
+        if in_single_quote:
+            if c == "'":
+                in_single_quote = False
+            i += 1
+            continue
+
+        # ── Backtick opener/closer ───────────────────────────
+        if c == "`":
+            if not in_single_quote:
+                # If we're inside a backtick we're tracking
+                if stack and stack[-1][0] == "`":
+                    type, start, _ = stack.pop()
+                    if not stack:
+                        nested.append(cmd[start:i])
+                else:
+                    stack.append(("`", i + 1, paren_depth))
+            i += 1
+            continue
+
+        # ── Quote openers ────────────────────────────────────
+        if c == "'":
+            if not in_double_quote:
+                in_single_quote = True
+            i += 1
+            continue
+
+        if c == '"':
+            in_double_quote = not in_double_quote
+            i += 1
+            continue
+
+        # ── Subshell openers ─────────────────────────────────
+        if c == "$" and i + 1 < n and cmd[i + 1] == "(":
+            stack.append(("(", i + 2, paren_depth))
+            i += 2
+            continue
+
+        if c in "<>" and i + 1 < n and cmd[i + 1] == "(":
+            stack.append(("(", i + 2, paren_depth))
+            i += 2
+            continue
+
+        # ── Parentheses tracking ─────────────────────────────
+        if c == "(":
+            paren_depth += 1
+            i += 1
+            continue
+
+        if c == ")":
+            if stack and stack[-1][0] == "(":
+                # Only close if it matches the paren_depth when it started
+                _, start, depth_at_start = stack[-1]
+                if paren_depth == depth_at_start:
+                    stack.pop()
+                    if not stack:
+                        nested.append(cmd[start:i])
+                else:
+                    # Just a normal nested paren inside a subshell
+                    paren_depth -= 1
+            else:
+                paren_depth -= 1
+            i += 1
+            continue
+
+        i += 1
+
+    return nested
+
+
 # ──────────────────────────────────────────────────────────────────
 # Normalize a single command segment
 # ──────────────────────────────────────────────────────────────────
 
 
 def normalize_segment(seg: str) -> tuple[str, list[str]]:
-    """Strip env-var prefixes and full paths, return (binary, arg_tokens)."""
+    """Strip env-var prefixes and full paths, return (binary, arg_tokens).
+    Also recursively unwraps sudo and env.
+    """
     import shlex
 
     try:
@@ -162,15 +260,39 @@ def normalize_segment(seg: str) -> tuple[str, list[str]]:
     if not tokens:
         return ("", [])
 
-    # Strip env-var prefixes (KEY=VALUE ...)
+    # Wrappers that we strip and recurse into
+    WRAPPERS = {"sudo", "env"}
+    # Flags that take a value for these wrappers
+    # sudo: -u user, -g group, -p prompt, -r role, -t type
+    # env: -u name
+    WRAPPER_FLAGS_WITH_VALUE = {"-u", "-g", "-p", "-r", "-t"}
+
     idx = 0
     while idx < len(tokens):
         tok = tokens[idx]
+        # Strip env-var prefixes (KEY=VALUE ...)
         if "=" in tok:
             key = tok.split("=", 1)[0]
             if key.isidentifier():
                 idx += 1
                 continue
+            break
+
+        # Strip wrappers (sudo, env)
+        binary_name = tok.rsplit("/", 1)[-1] if "/" in tok else tok
+        if binary_name in WRAPPERS:
+            idx += 1
+            # Skip common wrapper flags
+            while idx < len(tokens):
+                t = tokens[idx]
+                if t in WRAPPER_FLAGS_WITH_VALUE:
+                    idx += 2
+                    continue
+                if t.startswith("-"):
+                    idx += 1
+                    continue
+                break
+            continue
         break
 
     if idx >= len(tokens):
@@ -1085,15 +1207,19 @@ def check_docker(args: list[str]) -> bool:
 # ──────────────────────────────────────────────────────────────────
 
 
-def check_npm_publish(binary: str, args: list[str]) -> bool | None:
-    """Check npm/yarn/pnpm for publish commands. Returns None if not relevant."""
-    if binary not in ("npm", "yarn", "pnpm"):
-        return None
-
+def check_npm(args: list[str]) -> bool:
+    """Check npm/yarn/pnpm for publish commands."""
     if not args:
         return True
 
-    subcmd = args[0]
+    # Skip global flags to find subcommand
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        i += 1
+    if i >= len(args):
+        return True
+
+    subcmd = args[i]
     # Block publish/unpublish, allow everything else
     if subcmd in ("publish", "unpublish"):
         return False
@@ -1157,7 +1283,208 @@ PROVIDERS = {
     "twine": ("PyPI", check_twine),
     "gem": ("RubyGems", check_gem),
     "cargo": ("Cargo", check_cargo),
+    "npm": ("npm", check_npm),
+    "yarn": ("Yarn", check_npm),
+    "pnpm": ("pnpm", check_npm),
 }
+
+
+# ──────────────────────────────────────────────────────────────────
+# Context-aware conditional blocking
+# ──────────────────────────────────────────────────────────────────
+
+# Map alias binary names to their canonical config key
+ALIASES: dict[str, str] = {
+    "podman": "docker",
+    "mongo": "mongosh",
+    "sls": "serverless",
+    "yarn": "npm",
+    "pnpm": "npm",
+}
+
+# Cached config: None = not loaded yet, False = no config file found
+_config_cache: dict | bool | None = None
+
+
+def load_config() -> dict | None:
+    """Load config from priority locations. Returns dict or None.
+
+    Priority: $DEPLOYSHIELD_CONFIG → .deployshield.json in CWD → ~/.deployshield.json
+    Invalid JSON or non-dict values are treated as no config (block everything).
+    """
+    global _config_cache
+    if _config_cache is not None:
+        return _config_cache if _config_cache is not False else None
+
+    paths: list[str] = []
+    env_path = os.environ.get("DEPLOYSHIELD_CONFIG")
+    if env_path:
+        paths.append(env_path)
+    else:
+        paths.append(os.path.join(os.getcwd(), ".deployshield.json"))
+        paths.append(os.path.join(os.path.expanduser("~"), ".deployshield.json"))
+
+    for p in paths:
+        try:
+            with open(p) as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                _config_cache = data
+                return data
+        except (OSError, json.JSONDecodeError, TypeError):
+            continue
+
+    _config_cache = False
+    return None
+
+
+def extract_flag_value(args: list[str], *flag_names: str) -> str | None:
+    """Extract value for --flag value or --flag=value from args."""
+    for i, tok in enumerate(args):
+        for flag in flag_names:
+            if tok == flag and i + 1 < len(args):
+                return args[i + 1]
+            if tok.startswith(flag + "="):
+                return tok[len(flag) + 1 :]
+    return None
+
+
+def extract_env_prefix(segment: str, var_name: str) -> str | None:
+    """Extract VAR=value from command's env-var prefix."""
+    import shlex
+
+    try:
+        tokens = shlex.split(segment)
+    except ValueError:
+        tokens = segment.split()
+
+    for tok in tokens:
+        if "=" in tok:
+            key, _, val = tok.partition("=")
+            if key == var_name:
+                return val
+            if key.isidentifier():
+                continue
+        break
+    return None
+
+
+def _detect_kube_context(args: list[str], flag_name: str) -> str | None:
+    """Detect kube context from flag or kubeconfig file."""
+    val = extract_flag_value(args, flag_name)
+    if val is not None:
+        return val
+
+    kubeconfig = os.environ.get("KUBECONFIG", "")
+    if kubeconfig:
+        paths = [p for p in kubeconfig.split(os.pathsep) if p]
+    else:
+        paths = [os.path.join(os.path.expanduser("~"), ".kube", "config")]
+
+    for path in paths:
+        try:
+            with open(path) as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped.startswith("current-context:"):
+                        return (
+                            stripped[len("current-context:") :]
+                            .strip()
+                            .strip('"')
+                            .strip("'")
+                        )
+        except OSError:
+            continue
+    return None
+
+
+def _detect_aws_profile(segment: str, args: list[str]) -> str:
+    """Detect AWS profile from flag, env prefix, or env var. Defaults to 'default'."""
+    val = extract_flag_value(args, "--profile")
+    if val is not None:
+        return val
+
+    val = extract_env_prefix(segment, "AWS_PROFILE")
+    if val is not None:
+        return val
+
+    val = os.environ.get("AWS_PROFILE")
+    if val is not None:
+        return val
+
+    return "default"
+
+
+def _detect_terraform_workspace(args: list[str]) -> str:
+    """Detect terraform workspace from env var or .terraform/environment file."""
+    val = os.environ.get("TF_WORKSPACE")
+    if val is not None:
+        return val
+
+    chdir = extract_flag_value(args, "-chdir")
+    base_dir = chdir if chdir else os.getcwd()
+
+    env_file = os.path.join(base_dir, ".terraform", "environment")
+    try:
+        with open(env_file) as f:
+            workspace = f.read().strip()
+            if workspace:
+                return workspace
+    except OSError:
+        pass
+
+    return "default"
+
+
+def _detect_gcloud_project(args: list[str]) -> str | None:
+    """Detect GCP project from flag or env var."""
+    val = extract_flag_value(args, "--project")
+    if val is not None:
+        return val
+    return os.environ.get("CLOUDSDK_CORE_PROJECT")
+
+
+def _detect_az_subscription(args: list[str]) -> str | None:
+    """Detect Azure subscription from flag or env var."""
+    val = extract_flag_value(args, "--subscription")
+    if val is not None:
+        return val
+    return os.environ.get("AZURE_SUBSCRIPTION_ID")
+
+
+def _detect_pulumi_stack(args: list[str]) -> str | None:
+    """Detect Pulumi stack from --stack/-s flag."""
+    return extract_flag_value(args, "--stack", "-s")
+
+
+CONTEXT_DETECTORS: dict[str, object] = {
+    "kubectl": lambda seg, args: _detect_kube_context(args, "--context"),
+    "helm": lambda seg, args: _detect_kube_context(args, "--kube-context"),
+    "aws": lambda seg, args: _detect_aws_profile(seg, args),
+    "terraform": lambda seg, args: _detect_terraform_workspace(args),
+    "gcloud": lambda seg, args: _detect_gcloud_project(args),
+    "az": lambda seg, args: _detect_az_subscription(args),
+    "pulumi": lambda seg, args: _detect_pulumi_stack(args),
+}
+
+
+def detect_context(binary: str, segment: str, args: list[str]) -> str | None:
+    """Detect current context for a provider. Returns str or None."""
+    canonical = ALIASES.get(binary, binary)
+    detector = CONTEXT_DETECTORS.get(canonical)
+    if detector:
+        return detector(segment, args)
+    return None
+
+
+def context_is_blocked(context: str | None, patterns: list[str]) -> bool:
+    """Check if context matches any blocked pattern. None context = blocked."""
+    if context is None:
+        return True
+    for pattern in patterns:
+        if fnmatch.fnmatchcase(context, pattern):
+            return True
+    return False
 
 
 def deny(provider: str, cmd: str) -> None:
@@ -1167,7 +1494,11 @@ def deny(provider: str, cmd: str) -> None:
             "permissionDecision": "deny",
             "permissionDecisionReason": (
                 f"DeployShield: Blocked {provider} write operation "
-                f"'{cmd.strip()}'. Only read-only commands are allowed."
+                f"'{cmd.strip()}'. Only read-only commands are allowed in this context. "
+                "This is an intentional safety guardrail to prevent accidental modifications "
+                "to production or sensitive environments. If you need to perform this action, "
+                "please verify your current context (e.g., kubeconfig, AWS profile) or use a "
+                "read-only alternative like 'plan' or '--dry-run' if supported."
             ),
         }
     }
@@ -1177,18 +1508,45 @@ def deny(provider: str, cmd: str) -> None:
 
 
 def check_segment(segment: str) -> None:
+    # 1. First, recursively check any nested subshells or backticks within this segment.
+    # This prevents bypasses like 'echo $(terraform apply)'.
+    nested = extract_nested_contents(segment)
+    for ncmd in nested:
+        # A nested command might itself be compound (e.g. $(a && b))
+        for iseg in split_compound_command(ncmd):
+            check_segment(iseg)
+
+    # 2. Now check the main binary and arguments of this segment.
+    # normalize_segment recursively unwraps sudo and env.
     binary, args = normalize_segment(segment)
     if not binary:
         return
 
-    # Special case: npm/yarn/pnpm — only block publish subcommand
-    pub_result = check_npm_publish(binary, args)
-    if pub_result is not None:
-        if not pub_result:
-            deny("npm", segment)
-        return
+    # 3. Handle shell wrappers bash -c / sh -c
+    if binary in ("bash", "sh"):
+        cmd_str = extract_flag_value(args, "-c")
+        if cmd_str:
+            # Recursively check each segment inside the -c string
+            for iseg in split_compound_command(cmd_str):
+                check_segment(iseg)
+            return  # The shell itself is safe once its contents are checked
 
     if binary in PROVIDERS:
+        # Context-aware conditional blocking
+        config = load_config()
+        if config is not None:
+            canonical = ALIASES.get(binary, binary)
+            if canonical in config:
+                patterns = config[canonical]
+                if isinstance(patterns, list):
+                    # Empty list = never blocked (disabled for this CLI)
+                    if not patterns:
+                        return
+                    # Detect context and check if it matches blocked patterns
+                    context = detect_context(binary, segment, args)
+                    if not context_is_blocked(context, patterns):
+                        return  # Context doesn't match → allow everything
+
         provider_name, checker = PROVIDERS[binary]
         if not checker(args):
             deny(provider_name, segment)

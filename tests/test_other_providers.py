@@ -167,28 +167,25 @@ class TestDocker:
 
 class TestNpmPublish:
     def test_npm_publish_blocked(self, v):
-        assert v.check_npm_publish("npm", ["publish"]) is False
+        assert v.check_npm(["publish"]) is False
 
     def test_npm_unpublish_blocked(self, v):
-        assert v.check_npm_publish("npm", ["unpublish"]) is False
+        assert v.check_npm(["unpublish"]) is False
 
     def test_npm_test_safe(self, v):
-        assert v.check_npm_publish("npm", ["test"]) is True
+        assert v.check_npm(["test"]) is True
 
     def test_npm_install_safe(self, v):
-        assert v.check_npm_publish("npm", ["install"]) is True
+        assert v.check_npm(["install"]) is True
 
     def test_yarn_publish_blocked(self, v):
-        assert v.check_npm_publish("yarn", ["publish"]) is False
+        assert v.check_npm(["publish"]) is False
 
     def test_pnpm_publish_blocked(self, v):
-        assert v.check_npm_publish("pnpm", ["publish"]) is False
-
-    def test_not_npm_returns_none(self, v):
-        assert v.check_npm_publish("pip", ["install"]) is None
+        assert v.check_npm(["publish"]) is False
 
     def test_empty_args_safe(self, v):
-        assert v.check_npm_publish("npm", []) is True
+        assert v.check_npm([]) is True
 
 
 class TestTwine:
