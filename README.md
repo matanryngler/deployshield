@@ -140,6 +140,12 @@ kubectl --context=prod get pods              # ✅ Allowed (read-only)
 echo '{"docker": []}' > .deployshield.json
 ```
 
+### Use Cases
+
+- **🛡️ Safe Local Development**: Allow yourself to use destructive commands on your local machine or dev clusters, but keep the guardrails on for anything that touches production.
+- **🤝 Team-Wide Guardrails**: Commit a `.deployshield.json` to your project repository to ensure that every developer (and their AI agent) follows the same safety standards for that specific project.
+- **🏗️ CI/CD Migration**: If you're moving to a "GitOps" model where only CI should perform applies, you can use DeployShield to block all manual applies in your production environments, forcing the agent to propose a PR instead.
+
 ## Installation
 
 ### Via Plugin Marketplace (recommended)
