@@ -1,4 +1,5 @@
 name: Lint PR Title
+run-name: "Lint PR Title: #${{ github.event.pull_request.number }} ${{ github.event.pull_request.title }}"
 
 on:
   pull_request:
