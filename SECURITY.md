@@ -12,7 +12,7 @@ DeployShield is a safety-guardrail plugin for Claude Code. Security reports in t
 
 **Public issues:** For non-sensitive bugs (e.g., a missing subcommand in a safe-list), open a [GitHub issue](https://github.com/matanryngler/deployshield/issues).
 
-**Sensitive disclosures:** For parser bypasses or logic flaws that could allow destructive commands to pass through undetected, please email **matan.ryngler@gmail.com** with:
+**Sensitive disclosures:** For parser bypasses or logic flaws that could allow destructive commands to pass through undetected, please email **matanryngler@gmail.com** with:
 
 1. A description of the vulnerability
 2. A minimal reproducing command (the JSON payload you would pipe to the validator)
