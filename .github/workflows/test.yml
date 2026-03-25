@@ -3,9 +3,9 @@ run-name: "Tests: ${{ github.event.pull_request.title || github.event.head_commi
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
