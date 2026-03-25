@@ -140,3 +140,10 @@ class TestShellWrappers:
         assert code == 0
         result = json.loads(out)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_deeply_wrapped_bypass(self):
+        # sudo -> bash -c -> $(dangerous)
+        code, out = run_validator('sudo bash -c "echo $(terraform destroy)"')
+        assert code == 0
+        result = json.loads(out)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"

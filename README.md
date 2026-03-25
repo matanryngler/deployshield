@@ -226,6 +226,17 @@ echo '{"tool_input":{"command":"gh pr merge 123"}}' | ./hooks/scripts/validate-c
 echo '{"tool_input":{"command":"npm test"}}' | ./hooks/scripts/validate-cloud-command.py
 ```
 
-## License
+### Recursive Safety
+
+DeployShield provides deep protection through recursive validation:
+- **Subshells & Backticks**: Validates commands inside `$(...)` and `` `...` ``.
+- **Process Substitution**: Validates commands inside `<(...)` and `>(...)`.
+- **Administrative Wrappers**: Transparently unwraps `sudo` and `env` to check the underlying command.
+- **Shell Wrappers**: Recursively validates command strings passed to `bash -c` and `sh -c`.
+
+This ensures that common bypasses like `sudo terraform apply` or `bash -c "kubectl delete pods --all"` are correctly intercepted.
+
+### License
+
 
 MIT

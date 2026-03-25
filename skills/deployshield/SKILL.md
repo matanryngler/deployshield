@@ -101,6 +101,16 @@ By default, DeployShield blocks ALL write operations. To block only in specific 
 
 **Context detection:** `--context`/`--kube-context` flags and kubeconfig for kubectl/helm, `--profile`/`AWS_PROFILE` for aws, `TF_WORKSPACE`/`.terraform/environment` for terraform, `--project`/`CLOUDSDK_CORE_PROJECT` for gcloud, `--subscription`/`AZURE_SUBSCRIPTION_ID` for az, `--stack`/`-s` for pulumi.
 
+## Recursive Safety
+
+DeployShield provides deep protection through recursive validation:
+- **Subshells & Backticks**: Validates commands inside `$(...)` and `` `...` ``.
+- **Process Substitution**: Validates commands inside `<(...)` and `>(...)`.
+- **Administrative Wrappers**: Transparently unwraps `sudo` and `env` to check the underlying command.
+- **Shell Wrappers**: Recursively validates command strings passed to `bash -c` and `sh -c`.
+
+This ensures that bypasses like `sudo terraform apply` or `bash -c "kubectl delete pods --all"` are correctly intercepted.
+
 ## Guidelines
 
 - **Use read-only commands** to inspect state before proposing changes
