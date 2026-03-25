@@ -20,6 +20,10 @@ uv run --with pytest pytest tests/test_cloud_providers.py::TestAWS -v
 uv run --with ruff ruff check hooks/scripts/ tests/
 uv run --with ruff ruff format --check hooks/scripts/ tests/
 
+# Pre-commit (runs automatically on commit after install)
+uv run pre-commit install
+uv run pre-commit run --all-files
+
 # Format
 uv run --with ruff ruff format hooks/scripts/ tests/
 
