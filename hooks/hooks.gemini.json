@@ -1,0 +1,14 @@
+{
+  "hooks": [
+    {
+      "event": "pre-tool-call",
+      "run": "python3 hooks/scripts/validate-cloud-command.py",
+      "description": "DeployShield: Validate commands before tool execution"
+    },
+    {
+      "event": "SessionStart",
+      "run": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"contextForAgent\":\"DeployShield is active. Write/mutating operations are blocked for guarded CLIs. Only read-only commands are allowed.\"}}'",
+      "description": "DeployShield: Inject session start context"
+    }
+  ]
+}

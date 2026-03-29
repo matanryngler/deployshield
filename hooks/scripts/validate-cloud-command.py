@@ -1490,7 +1490,7 @@ def context_is_blocked(context: str | None, patterns: list[str]) -> bool:
 def deny(provider: str, cmd: str) -> None:
     result = {
         "hookSpecificOutput": {
-            "hookEventName": "BeforeTool",
+            "hookEventName": "DeployShield",
             "permissionDecision": "deny",
             "permissionDecisionReason": (
                 f"DeployShield: Blocked {provider} write operation "

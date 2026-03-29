@@ -1,6 +1,4 @@
-name = "deployshield-status"
 description = "Show DeployShield protection status and guarded CLIs"
-
-[[actions]]
-type = "read_file"
-file_path = "commands/deployshield-status.md"
+prompt = """
+Read the file `commands/deployshield-status.md` and present its content to the user.
+"""
