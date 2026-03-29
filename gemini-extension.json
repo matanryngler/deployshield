@@ -6,10 +6,5 @@
   "repository": "https://github.com/matanryngler/deployshield",
   "license": "MIT",
   "main": "hooks/hooks.json",
-  "skills": [
-    "skills/gemini/SKILL.md"
-  ],
-  "commands": [
-    "commands/deployshield-status.md"
-  ]
+  "contextFileName": "GEMINI.md"
 }

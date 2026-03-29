@@ -1,0 +1,4 @@
+description = "Show DeployShield protection status and guarded CLIs"
+prompt = """
+Read the file `commands/deployshield-status.md` and present its content to the user.
+"""
