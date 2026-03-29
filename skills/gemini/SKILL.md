@@ -1,5 +1,6 @@
 ---
-description: Production safety guardrails - prevents write/mutating operations on cloud, database, and deployment CLIs
+name: deployshield
+description: Production safety guardrails for Gemini CLI
 globs:
   - "**/*.tf"
   - "**/*.tfvars"
