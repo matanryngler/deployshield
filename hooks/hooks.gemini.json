@@ -2,7 +2,8 @@
   "hooks": [
     {
       "event": "pre-tool-call",
-      "run": "python3 hooks/scripts/validate-cloud-command.py",
+      "matcher": "run_shell_command",
+      "script": "python3 scripts/validate-cloud-command.py",
       "description": "DeployShield: Validate commands before tool execution"
     },
     {
