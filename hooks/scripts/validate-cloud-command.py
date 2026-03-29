@@ -1487,34 +1487,44 @@ def context_is_blocked(context: str | None, patterns: list[str]) -> bool:
     return False
 
 
-def deny(provider: str, cmd: str) -> None:
-    result = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": (
-                f"DeployShield: Blocked {provider} write operation "
-                f"'{cmd.strip()}'. Only read-only commands are allowed in this context. "
-                "This is an intentional safety guardrail to prevent accidental modifications "
-                "to production or sensitive environments. If you need to perform this action, "
-                "please verify your current context (e.g., kubeconfig, AWS profile) or use a "
-                "read-only alternative like 'plan' or '--dry-run' if supported."
-            ),
+def deny(provider: str, cmd: str, platform: str = "claude") -> None:
+    reason = (
+        f"DeployShield: Blocked {provider} write operation "
+        f"'{cmd.strip()}'. Only read-only commands are allowed in this context. "
+        "This is an intentional safety guardrail to prevent accidental modifications "
+        "to production or sensitive environments. If you need to perform this action, "
+        "please verify your current context (e.g., kubeconfig, AWS profile) or use a "
+        "read-only alternative like 'plan' or '--dry-run' if supported."
+    )
+
+    if platform == "gemini":
+        result = {
+            "decision": "deny",
+            "reason": reason,
+            "systemMessage": f"🔒 DeployShield: Blocked {provider} write operation",
         }
-    }
+    else:
+        result = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }
+        }
+
     json.dump(result, sys.stdout, indent=2)
     print()
     sys.exit(0)
 
 
-def check_segment(segment: str) -> None:
+def check_segment(segment: str, platform: str = "claude") -> None:
     # 1. First, recursively check any nested subshells or backticks within this segment.
     # This prevents bypasses like 'echo $(terraform apply)'.
     nested = extract_nested_contents(segment)
     for ncmd in nested:
         # A nested command might itself be compound (e.g. $(a && b))
         for iseg in split_compound_command(ncmd):
-            check_segment(iseg)
+            check_segment(iseg, platform)
 
     # 2. Now check the main binary and arguments of this segment.
     # normalize_segment recursively unwraps sudo and env.
@@ -1528,7 +1538,7 @@ def check_segment(segment: str) -> None:
         if cmd_str:
             # Recursively check each segment inside the -c string
             for iseg in split_compound_command(cmd_str):
-                check_segment(iseg)
+                check_segment(iseg, platform)
             return  # The shell itself is safe once its contents are checked
 
     if binary in PROVIDERS:
@@ -1549,7 +1559,7 @@ def check_segment(segment: str) -> None:
 
         provider_name, checker = PROVIDERS[binary]
         if not checker(args):
-            deny(provider_name, segment)
+            deny(provider_name, segment, platform)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1567,13 +1577,17 @@ def main() -> None:
     except json.JSONDecodeError:
         sys.exit(0)
 
+    # Detect platform
+    hook_event = data.get("hook_event_name")
+    platform = "gemini" if hook_event == "BeforeTool" else "claude"
+
     command = data.get("tool_input", {}).get("command", "")
     if not command:
         sys.exit(0)
 
     segments = split_compound_command(command)
     for seg in segments:
-        check_segment(seg)
+        check_segment(seg, platform)
 
     # All segments passed
     sys.exit(0)
