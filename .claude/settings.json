@@ -1,0 +1,1 @@
+{"hooks": {"PreToolUse": "python3 hooks/scripts/validate-cloud-command.py"}}
