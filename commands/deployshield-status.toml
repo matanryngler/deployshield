@@ -1,0 +1,6 @@
+name = "deployshield-status"
+description = "Show DeployShield protection status and guarded CLIs"
+
+[[actions]]
+type = "read_file"
+file_path = "commands/deployshield-status.md"
