@@ -147,3 +147,38 @@ class TestShellWrappers:
         assert code == 0
         result = json.loads(out)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def run_validator_gemini(command: str) -> tuple[int, str]:
+    """Simulate a Gemini request by including "hook_event_name": "BeforeTool"."""
+    payload = json.dumps(
+        {
+            "tool_input": {"command": command},
+            "hook_event_name": "BeforeTool",
+        }
+    )
+    result = subprocess.run(
+        [sys.executable, SCRIPT],
+        input=payload,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode, result.stdout
+
+
+class TestGeminiCompatibility:
+    def test_gemini_block_format(self):
+        """Verify that a blocked command returns Gemini-specific JSON format."""
+        code, out = run_validator_gemini("terraform apply")
+        assert code == 0
+        result = json.loads(out)
+        assert "decision" in result
+        assert "reason" in result
+        assert "systemMessage" in result
+        assert result["decision"] == "deny"
+
+    def test_gemini_allow_format(self):
+        """Verify that an allowed command exits with 0 and no output for Gemini."""
+        code, out = run_validator_gemini("terraform plan")
+        assert code == 0
+        assert out.strip() == ""
