@@ -170,6 +170,13 @@ class TestShellWrappers:
         result = json.loads(out)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
+    def test_xargs_blocking(self):
+        """xargs terraform apply should be blocked."""
+        code, out = run_validator("echo id | xargs terraform apply")
+        assert code == 0
+        result = json.loads(out)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
 
 def run_validator_gemini(command: str) -> tuple[int, str]:
     """Simulate a Gemini request by including "hook_event_name": "BeforeTool"."""

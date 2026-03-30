@@ -261,11 +261,29 @@ def normalize_segment(seg: str) -> tuple[str, list[str]]:
         return ("", [])
 
     # Wrappers that we strip and recurse into
-    WRAPPERS = {"sudo", "env"}
+    WRAPPERS = {"sudo", "env", "xargs"}
     # Flags that take a value for these wrappers
     # sudo: -u user, -g group, -p prompt, -r role, -t type
     # env: -u name
-    WRAPPER_FLAGS_WITH_VALUE = {"-u", "-g", "-p", "-r", "-t"}
+    # xargs: -a file, -d delim, -E eof-str, -e eof-str, -I replstr, -i replstr, -L max-lines, -l max-lines, -n max-args, -P max-procs, -s max-chars
+    WRAPPER_FLAGS_WITH_VALUE = {
+        "-u",
+        "-g",
+        "-p",
+        "-r",
+        "-t",
+        "-a",
+        "-d",
+        "-E",
+        "-e",
+        "-I",
+        "-i",
+        "-L",
+        "-l",
+        "-n",
+        "-P",
+        "-s",
+    }
 
     idx = 0
     while idx < len(tokens):
@@ -1489,13 +1507,23 @@ def context_is_blocked(context: str | None, patterns: list[str]) -> bool:
 
 def sanitize_command(cmd: str) -> str:
     """Sanitize command for safe display in logs/terminal.
-    Strips newlines, truncates, and replaces with redaction if potentially sensitive.
+    Strips newlines, control characters, and truncates to a safe length.
     """
     if not cmd:
         return "<empty-command>"
-    # Simple sanitization: first word + args count, or just redacted
-    # To be extremely safe and avoid leaking secrets in tokens, we just redact.
-    return "<redacted-command>"
+
+    # Strip newlines and replace with spaces
+    cleaned = cmd.strip().replace("\n", " ").replace("\r", " ")
+
+    # Remove control characters (non-printable) to prevent terminal injection
+    # This keeps printable ASCII and common symbols
+    cleaned = "".join(ch for ch in cleaned if ch.isprintable())
+
+    # Truncate to a reasonable length for display
+    MAX_LEN = 150
+    if len(cleaned) > MAX_LEN:
+        return cleaned[: MAX_LEN - 3] + "..."
+    return cleaned
 
 
 def get_session_start_message(platform: str = "claude") -> None:
