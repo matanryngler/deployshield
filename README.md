@@ -79,6 +79,7 @@ For detailed configuration options, see the **[Configuration Guide](docs/configu
 DeployShield provides deep protection that handles common bypass attempts:
 - **Nested Subshells**: `echo $(terraform destroy)` → **Blocked**
 - **Administrative Wrappers**: `sudo kubectl delete ...` → **Blocked**
+- **Execution Wrappers**: `echo pod-id | xargs kubectl delete pod` → **Blocked**
 - **Shell Wrappers**: `bash -c "aws s3 rm ..."` → **Blocked**
 - **Process Substitution**: `cat <(pulumi destroy)` → **Blocked**
 

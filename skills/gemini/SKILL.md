@@ -29,4 +29,4 @@ DeployShield is active. All Bash commands are validated before execution.
 - To allow writes in specific contexts, create a `.deployshield.json` file.
 
 ## Integration
-This skill uses the core DeployShield validator via a PreToolUse hook.
+This skill uses the core DeployShield validator via a BeforeTool hook on the `run_shell_command` tool.

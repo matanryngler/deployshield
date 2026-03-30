@@ -17,7 +17,12 @@ SCRIPT = str(
 
 def run_validator(command: str) -> tuple[int, str]:
     """Pipe a command through the validator and return (exit_code, stdout)."""
-    payload = json.dumps({"tool_input": {"command": command}})
+    payload = json.dumps(
+        {
+            "tool_input": {"command": command},
+            "hook_event_name": "PreToolUse",
+        }
+    )
     result = subprocess.run(
         [sys.executable, SCRIPT],
         input=payload,
@@ -113,6 +118,23 @@ class TestEdgeCases:
         )
         assert result.returncode == 0
 
+    def test_invalid_hook_event(self):
+        """Unsupported hook_event_name should fail fast with exit 1."""
+        payload = json.dumps(
+            {
+                "tool_input": {"command": "ls"},
+                "hook_event_name": "UnknownHook",
+            }
+        )
+        result = subprocess.run(
+            [sys.executable, SCRIPT],
+            input=payload,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 1
+        assert "Unsupported hook_event_name" in result.stderr
+
     def test_env_var_prefix(self):
         """Env vars before a dangerous command should still block."""
         code, out = run_validator("AWS_PROFILE=prod aws ec2 run-instances")
@@ -147,3 +169,45 @@ class TestShellWrappers:
         assert code == 0
         result = json.loads(out)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_xargs_blocking(self):
+        """xargs terraform apply should be blocked."""
+        code, out = run_validator("echo id | xargs terraform apply")
+        assert code == 0
+        result = json.loads(out)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def run_validator_gemini(command: str) -> tuple[int, str]:
+    """Simulate a Gemini request by including "hook_event_name": "BeforeTool"."""
+    payload = json.dumps(
+        {
+            "tool_input": {"command": command},
+            "hook_event_name": "BeforeTool",
+        }
+    )
+    result = subprocess.run(
+        [sys.executable, SCRIPT],
+        input=payload,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode, result.stdout
+
+
+class TestGeminiCompatibility:
+    def test_gemini_block_format(self):
+        """Verify that a blocked command returns Gemini-specific JSON format."""
+        code, out = run_validator_gemini("terraform apply")
+        assert code == 0
+        result = json.loads(out)
+        assert "decision" in result
+        assert "reason" in result
+        assert "systemMessage" in result
+        assert result["decision"] == "deny"
+
+    def test_gemini_allow_format(self):
+        """Verify that an allowed command exits with 0 and no output for Gemini."""
+        code, out = run_validator_gemini("terraform plan")
+        assert code == 0
+        assert out.strip() == ""

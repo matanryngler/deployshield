@@ -553,7 +553,12 @@ class TestContextAwareIntegration:
         env = os.environ.copy()
         if env_extra:
             env.update(env_extra)
-        payload = json.dumps({"tool_input": {"command": command}})
+        payload = json.dumps(
+            {
+                "tool_input": {"command": command},
+                "hook_event_name": "PreToolUse",
+            }
+        )
         result = subprocess.run(
             [sys.executable, SCRIPT],
             input=payload,

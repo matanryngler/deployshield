@@ -261,38 +261,46 @@ def normalize_segment(seg: str) -> tuple[str, list[str]]:
         return ("", [])
 
     # Wrappers that we strip and recurse into
-    WRAPPERS = {"sudo", "env"}
+    WRAPPERS = {"sudo", "env", "xargs"}
     # Flags that take a value for these wrappers
-    # sudo: -u user, -g group, -p prompt, -r role, -t type
-    # env: -u name
-    WRAPPER_FLAGS_WITH_VALUE = {"-u", "-g", "-p", "-r", "-t"}
+    WRAPPER_FLAGS_WITH_VALUE = {
+        "sudo": {"-u", "-g", "-p", "-r", "-t"},
+        "env": {"-u"},
+        "xargs": {"-a", "-d", "-E", "-e", "-I", "-i", "-L", "-l", "-n", "-P", "-s"},
+    }
 
     idx = 0
     while idx < len(tokens):
         tok = tokens[idx]
-        # Strip env-var prefixes (KEY=VALUE ...)
+
+        # 1. Strip env-var prefixes (KEY=VALUE ...)
         if "=" in tok:
             key = tok.split("=", 1)[0]
             if key.isidentifier():
                 idx += 1
                 continue
+            # If it's not a valid identifier (e.g. ./path=foo), it's not an env var
             break
 
-        # Strip wrappers (sudo, env)
+        # 2. Strip wrappers (sudo, env, xargs)
         binary_name = tok.rsplit("/", 1)[-1] if "/" in tok else tok
         if binary_name in WRAPPERS:
+            current_flags = WRAPPER_FLAGS_WITH_VALUE.get(binary_name, set())
             idx += 1
             # Skip common wrapper flags
             while idx < len(tokens):
                 t = tokens[idx]
-                if t in WRAPPER_FLAGS_WITH_VALUE:
+                if t in current_flags:
                     idx += 2
                     continue
                 if t.startswith("-"):
                     idx += 1
                     continue
                 break
+            # After skipping flags, we might be at another wrapper or env-var prefix
             continue
+
+        # 3. Not an env-var or wrapper -> this is our binary
         break
 
     if idx >= len(tokens):
@@ -1487,34 +1495,100 @@ def context_is_blocked(context: str | None, patterns: list[str]) -> bool:
     return False
 
 
-def deny(provider: str, cmd: str) -> None:
-    result = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": (
-                f"DeployShield: Blocked {provider} write operation "
-                f"'{cmd.strip()}'. Only read-only commands are allowed in this context. "
-                "This is an intentional safety guardrail to prevent accidental modifications "
-                "to production or sensitive environments. If you need to perform this action, "
-                "please verify your current context (e.g., kubeconfig, AWS profile) or use a "
-                "read-only alternative like 'plan' or '--dry-run' if supported."
-            ),
+def sanitize_command(cmd: str) -> str:
+    """Sanitize command for safe display in logs/terminal.
+    Strips newlines, control characters, and truncates to a safe length.
+    """
+    if not cmd:
+        return "<empty-command>"
+
+    # Strip newlines and replace with spaces
+    cleaned = cmd.strip().replace("\n", " ").replace("\r", " ")
+
+    # Remove control characters (non-printable) to prevent terminal injection
+    # This keeps printable ASCII and common symbols
+    cleaned = "".join(ch for ch in cleaned if ch.isprintable())
+
+    # Truncate to a reasonable length for display
+    MAX_LEN = 150
+    if len(cleaned) > MAX_LEN:
+        return cleaned[: MAX_LEN - 3] + "..."
+    return cleaned
+
+
+def get_session_start_message(platform: str = "claude") -> None:
+    """Output the SessionStart JSON for the specified platform."""
+    provider_list = sorted(set(p[0] for p in PROVIDERS.values()))
+    providers_str = ", ".join(provider_list)
+
+    msg = (
+        "DeployShield is active. Write/mutating operations are blocked for: "
+        f"{providers_str}. Only read-only commands are allowed. "
+        "Suggest --dry-run flags and terraform plan instead of terraform apply where appropriate. "
+        "Context-aware blocking is available: create a .deployshield.json config file to block writes "
+        "only in specific contexts (e.g. prod kube contexts, production AWS profiles). "
+        "See project docs for config schema."
+    )
+
+    if platform == "gemini":
+        result = {"additionalContext": msg}
+    else:
+        result = {
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "contextForAgent": msg,
+            }
         }
-    }
+
     json.dump(result, sys.stdout, indent=2)
     print()
     sys.exit(0)
 
 
-def check_segment(segment: str) -> None:
+def deny(provider: str, cmd: str, platform: str = "claude") -> None:
+    sanitized_cmd = sanitize_command(cmd)
+    reason = (
+        f"DeployShield: Blocked {provider} write operation "
+        f"'{sanitized_cmd}'. Only read-only commands are allowed in this context. "
+        "This is an intentional safety guardrail to prevent accidental modifications "
+        "to production or sensitive environments. If you need to perform this action, "
+        "please verify your current context (e.g., kubeconfig, AWS profile) or use a "
+        "read-only alternative like 'plan' or '--dry-run' if supported."
+    )
+
+    if platform == "gemini":
+        result = {
+            "decision": "deny",
+            "reason": reason,
+            "systemMessage": (
+                "\033[1;31m🔒 DeployShield Blocked Write Operation\033[0m\n"
+                f"\033[33mProvider:\033[0m {provider}\n"
+                f"\033[33mCommand:\033[0m {sanitized_cmd}\n"
+                "\033[33mReason:\033[0m Only read-only commands allowed in this context."
+            ),
+        }
+    else:
+        result = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }
+        }
+
+    json.dump(result, sys.stdout, indent=2)
+    print()
+    sys.exit(0)
+
+
+def check_segment(segment: str, platform: str = "claude") -> None:
     # 1. First, recursively check any nested subshells or backticks within this segment.
     # This prevents bypasses like 'echo $(terraform apply)'.
     nested = extract_nested_contents(segment)
     for ncmd in nested:
         # A nested command might itself be compound (e.g. $(a && b))
         for iseg in split_compound_command(ncmd):
-            check_segment(iseg)
+            check_segment(iseg, platform)
 
     # 2. Now check the main binary and arguments of this segment.
     # normalize_segment recursively unwraps sudo and env.
@@ -1528,7 +1602,7 @@ def check_segment(segment: str) -> None:
         if cmd_str:
             # Recursively check each segment inside the -c string
             for iseg in split_compound_command(cmd_str):
-                check_segment(iseg)
+                check_segment(iseg, platform)
             return  # The shell itself is safe once its contents are checked
 
     if binary in PROVIDERS:
@@ -1549,7 +1623,7 @@ def check_segment(segment: str) -> None:
 
         provider_name, checker = PROVIDERS[binary]
         if not checker(args):
-            deny(provider_name, segment)
+            deny(provider_name, segment, platform)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1558,6 +1632,14 @@ def check_segment(segment: str) -> None:
 
 
 def main() -> None:
+    # Explicit platform override for --session-start
+    if len(sys.argv) > 1 and sys.argv[1] == "--session-start":
+        platform = "claude"
+        if len(sys.argv) > 2:
+            platform = sys.argv[2]
+        get_session_start_message(platform)
+        return
+
     raw = sys.stdin.read()
     if not raw.strip():
         sys.exit(0)
@@ -1567,13 +1649,24 @@ def main() -> None:
     except json.JSONDecodeError:
         sys.exit(0)
 
+    # Explicit Platform Detection
+    hook_event = data.get("hook_event_name")
+    if hook_event == "BeforeTool":
+        platform = "gemini"
+    elif hook_event == "PreToolUse":
+        platform = "claude"
+    else:
+        # Reject unknown/unsupported hook_event values
+        sys.stderr.write(f"Error: Unsupported hook_event_name: {hook_event}\n")
+        sys.exit(1)
+
     command = data.get("tool_input", {}).get("command", "")
     if not command:
         sys.exit(0)
 
     segments = split_compound_command(command)
     for seg in segments:
-        check_segment(seg)
+        check_segment(seg, platform)
 
     # All segments passed
     sys.exit(0)

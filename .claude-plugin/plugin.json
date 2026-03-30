@@ -23,5 +23,6 @@
     "docker",
     "database",
     "vault"
-  ]
+  ],
+  "hooks": "./hooks/claude-hooks.json"
 }
