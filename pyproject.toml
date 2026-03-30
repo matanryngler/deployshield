@@ -5,7 +5,7 @@ description = "Production safety guardrails for Claude Code"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
-    { name = "Matan Ryngler", email = "matan@example.com" }
+    { name = "Matan Ryngler", email = "matanryngler@gmail.com" }
 ]
 dependencies = []
 
