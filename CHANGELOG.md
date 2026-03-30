@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.5.0](https://github.com/matanryngler/deployshield/compare/v1.4.0...v1.5.0) (2026-03-30)
+
+
+### Features
+
+* add Gemini-compatible BeforeTool hook and update SessionStart ([643bdad](https://github.com/matanryngler/deployshield/commit/643bdadbb871b7a624b6a948b326a2a4987f472e))
+* add xargs support and refine command sanitization ([3103ffb](https://github.com/matanryngler/deployshield/commit/3103ffb71ed3769b314d6c1b798ce5c9371dd4ab))
+* resolve Gemini CLI warnings and improve blocking UX ([1586566](https://github.com/matanryngler/deployshield/commit/158656688230272ac59b1bd7d85fe5a0461d99b6))
+* support Gemini CLI with improved security, UX, and xargs wrapping ([da5e36c](https://github.com/matanryngler/deployshield/commit/da5e36ce71f274420f6ce8af516435b6d06ad5ff))
+* support Gemini-style deny response and platform detection ([ec48d5d](https://github.com/matanryngler/deployshield/commit/ec48d5d385d32fe6817c187cbfe1a2368c60e94c))
+
+
+### Bug Fixes
+
+* resolve normalization regressions and update test helpers ([17aff84](https://github.com/matanryngler/deployshield/commit/17aff841cc212c395d0a7615fa57adbbf6806193))
+
 ## [1.4.0](https://github.com/matanryngler/deployshield/compare/v1.3.0...v1.4.0) (2026-03-25)
 
 
