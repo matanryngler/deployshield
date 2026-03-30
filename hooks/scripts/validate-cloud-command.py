@@ -263,54 +263,44 @@ def normalize_segment(seg: str) -> tuple[str, list[str]]:
     # Wrappers that we strip and recurse into
     WRAPPERS = {"sudo", "env", "xargs"}
     # Flags that take a value for these wrappers
-    # sudo: -u user, -g group, -p prompt, -r role, -t type
-    # env: -u name
-    # xargs: -a file, -d delim, -E eof-str, -e eof-str, -I replstr, -i replstr, -L max-lines, -l max-lines, -n max-args, -P max-procs, -s max-chars
     WRAPPER_FLAGS_WITH_VALUE = {
-        "-u",
-        "-g",
-        "-p",
-        "-r",
-        "-t",
-        "-a",
-        "-d",
-        "-E",
-        "-e",
-        "-I",
-        "-i",
-        "-L",
-        "-l",
-        "-n",
-        "-P",
-        "-s",
+        "sudo": {"-u", "-g", "-p", "-r", "-t"},
+        "env": {"-u"},
+        "xargs": {"-a", "-d", "-E", "-e", "-I", "-i", "-L", "-l", "-n", "-P", "-s"},
     }
 
     idx = 0
     while idx < len(tokens):
         tok = tokens[idx]
-        # Strip env-var prefixes (KEY=VALUE ...)
+
+        # 1. Strip env-var prefixes (KEY=VALUE ...)
         if "=" in tok:
             key = tok.split("=", 1)[0]
             if key.isidentifier():
                 idx += 1
                 continue
+            # If it's not a valid identifier (e.g. ./path=foo), it's not an env var
             break
 
-        # Strip wrappers (sudo, env)
+        # 2. Strip wrappers (sudo, env, xargs)
         binary_name = tok.rsplit("/", 1)[-1] if "/" in tok else tok
         if binary_name in WRAPPERS:
+            current_flags = WRAPPER_FLAGS_WITH_VALUE.get(binary_name, set())
             idx += 1
             # Skip common wrapper flags
             while idx < len(tokens):
                 t = tokens[idx]
-                if t in WRAPPER_FLAGS_WITH_VALUE:
+                if t in current_flags:
                     idx += 2
                     continue
                 if t.startswith("-"):
                     idx += 1
                     continue
                 break
+            # After skipping flags, we might be at another wrapper or env-var prefix
             continue
+
+        # 3. Not an env-var or wrapper -> this is our binary
         break
 
     if idx >= len(tokens):
