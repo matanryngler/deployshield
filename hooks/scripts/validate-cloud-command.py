@@ -1501,7 +1501,12 @@ def deny(provider: str, cmd: str, platform: str = "claude") -> None:
         result = {
             "decision": "deny",
             "reason": reason,
-            "systemMessage": f"🔒 DeployShield: Blocked {provider} write operation",
+            "systemMessage": (
+                "\033[1;31m🔒 DeployShield Blocked Write Operation\033[0m\n"
+                f"\033[33mProvider:\033[0m {provider}\n"
+                f"\033[33mCommand:\033[0m {cmd.strip()}\n"
+                "\033[33mReason:\033[0m Only read-only commands allowed in this context."
+            ),
         }
     else:
         result = {

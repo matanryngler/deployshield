@@ -5,7 +5,6 @@
   "author": "Matan Ryngler",
   "repository": "https://github.com/matanryngler/deployshield",
   "license": "MIT",
-  "main": "hooks/hooks.json",
   "skills": [
     "skills/gemini/SKILL.md"
   ],
