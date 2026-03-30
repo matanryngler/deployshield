@@ -1487,10 +1487,51 @@ def context_is_blocked(context: str | None, patterns: list[str]) -> bool:
     return False
 
 
+def sanitize_command(cmd: str) -> str:
+    """Sanitize command for safe display in logs/terminal.
+    Strips newlines, truncates, and replaces with redaction if potentially sensitive.
+    """
+    if not cmd:
+        return "<empty-command>"
+    # Simple sanitization: first word + args count, or just redacted
+    # To be extremely safe and avoid leaking secrets in tokens, we just redact.
+    return "<redacted-command>"
+
+
+def get_session_start_message(platform: str = "claude") -> None:
+    """Output the SessionStart JSON for the specified platform."""
+    provider_list = sorted(set(p[0] for p in PROVIDERS.values()))
+    providers_str = ", ".join(provider_list)
+
+    msg = (
+        "DeployShield is active. Write/mutating operations are blocked for: "
+        f"{providers_str}. Only read-only commands are allowed. "
+        "Suggest --dry-run flags and terraform plan instead of terraform apply where appropriate. "
+        "Context-aware blocking is available: create a .deployshield.json config file to block writes "
+        "only in specific contexts (e.g. prod kube contexts, production AWS profiles). "
+        "See project docs for config schema."
+    )
+
+    if platform == "gemini":
+        result = {"additionalContext": msg}
+    else:
+        result = {
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "contextForAgent": msg,
+            }
+        }
+
+    json.dump(result, sys.stdout, indent=2)
+    print()
+    sys.exit(0)
+
+
 def deny(provider: str, cmd: str, platform: str = "claude") -> None:
+    sanitized_cmd = sanitize_command(cmd)
     reason = (
         f"DeployShield: Blocked {provider} write operation "
-        f"'{cmd.strip()}'. Only read-only commands are allowed in this context. "
+        f"'{sanitized_cmd}'. Only read-only commands are allowed in this context. "
         "This is an intentional safety guardrail to prevent accidental modifications "
         "to production or sensitive environments. If you need to perform this action, "
         "please verify your current context (e.g., kubeconfig, AWS profile) or use a "
@@ -1504,7 +1545,7 @@ def deny(provider: str, cmd: str, platform: str = "claude") -> None:
             "systemMessage": (
                 "\033[1;31m🔒 DeployShield Blocked Write Operation\033[0m\n"
                 f"\033[33mProvider:\033[0m {provider}\n"
-                f"\033[33mCommand:\033[0m {cmd.strip()}\n"
+                f"\033[33mCommand:\033[0m {sanitized_cmd}\n"
                 "\033[33mReason:\033[0m Only read-only commands allowed in this context."
             ),
         }
@@ -1573,6 +1614,14 @@ def check_segment(segment: str, platform: str = "claude") -> None:
 
 
 def main() -> None:
+    # Explicit platform override for --session-start
+    if len(sys.argv) > 1 and sys.argv[1] == "--session-start":
+        platform = "claude"
+        if len(sys.argv) > 2:
+            platform = sys.argv[2]
+        get_session_start_message(platform)
+        return
+
     raw = sys.stdin.read()
     if not raw.strip():
         sys.exit(0)
@@ -1582,9 +1631,16 @@ def main() -> None:
     except json.JSONDecodeError:
         sys.exit(0)
 
-    # Detect platform
+    # Explicit Platform Detection
     hook_event = data.get("hook_event_name")
-    platform = "gemini" if hook_event == "BeforeTool" else "claude"
+    if hook_event == "BeforeTool":
+        platform = "gemini"
+    elif hook_event == "PreToolUse":
+        platform = "claude"
+    else:
+        # Reject unknown/unsupported hook_event values
+        sys.stderr.write(f"Error: Unsupported hook_event_name: {hook_event}\n")
+        sys.exit(1)
 
     command = data.get("tool_input", {}).get("command", "")
     if not command:

@@ -17,7 +17,12 @@ SCRIPT = str(
 
 def run_validator(command: str) -> tuple[int, str]:
     """Pipe a command through the validator and return (exit_code, stdout)."""
-    payload = json.dumps({"tool_input": {"command": command}})
+    payload = json.dumps(
+        {
+            "tool_input": {"command": command},
+            "hook_event_name": "PreToolUse",
+        }
+    )
     result = subprocess.run(
         [sys.executable, SCRIPT],
         input=payload,
@@ -112,6 +117,23 @@ class TestEdgeCases:
             text=True,
         )
         assert result.returncode == 0
+
+    def test_invalid_hook_event(self):
+        """Unsupported hook_event_name should fail fast with exit 1."""
+        payload = json.dumps(
+            {
+                "tool_input": {"command": "ls"},
+                "hook_event_name": "UnknownHook",
+            }
+        )
+        result = subprocess.run(
+            [sys.executable, SCRIPT],
+            input=payload,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 1
+        assert "Unsupported hook_event_name" in result.stderr
 
     def test_env_var_prefix(self):
         """Env vars before a dangerous command should still block."""
